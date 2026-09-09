@@ -5,7 +5,89 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My First Website</title>
+    <script>
+        // Apply saved or system theme immediately to prevent screen flash (FOUT)
+        (function () {
+            try {
+                const savedTheme = localStorage.getItem('theme');
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
+                    document.documentElement.classList.add('dark-theme');
+                }
+            } catch (e) {
+                // Ignore localStorage errors in restricted environments
+            }
+        })();
+    </script>
     <style>
+        /* CSS Variables for Theming */
+        :root {
+            --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --card-bg: #ffffff;
+            --text-heading: #2d3748;
+            --text-body: #4a5568;
+            --card-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+
+            --counter-badge-bg: #edf2f7;
+            --counter-badge-text: #2b6cb0;
+            --counter-badge-border: #cbd5e0;
+
+            --btn-primary-bg: #667eea;
+            --btn-primary-hover: #5a67d8;
+            --btn-primary-text: #ffffff;
+            --btn-primary-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            --btn-primary-hover-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+
+            --btn-reset-bg: #edf2f7;
+            --btn-reset-hover: #e2e8f0;
+            --btn-reset-text: #4a5568;
+            --btn-reset-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+            --btn-reset-hover-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+
+            --btn-theme-bg: #f7fafc;
+            --btn-theme-hover: #edf2f7;
+            --btn-theme-text: #4a5568;
+            --btn-theme-border: #e2e8f0;
+
+            --result-color: #2b6cb0;
+            --milestone-color: #d97706;
+            --focus-outline: #2d3748;
+        }
+
+        :root.dark-theme,
+        body.dark-theme {
+            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            --card-bg: #1e293b;
+            --text-heading: #f8fafc;
+            --text-body: #cbd5e1;
+            --card-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+
+            --counter-badge-bg: #334155;
+            --counter-badge-text: #93c5fd;
+            --counter-badge-border: #475569;
+
+            --btn-primary-bg: #6366f1;
+            --btn-primary-hover: #4f46e5;
+            --btn-primary-text: #ffffff;
+            --btn-primary-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+            --btn-primary-hover-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
+
+            --btn-reset-bg: #334155;
+            --btn-reset-hover: #475569;
+            --btn-reset-text: #f1f5f9;
+            --btn-reset-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            --btn-reset-hover-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+
+            --btn-theme-bg: #334155;
+            --btn-theme-hover: #475569;
+            --btn-theme-text: #f1f5f9;
+            --btn-theme-border: #475569;
+
+            --result-color: #93c5fd;
+            --milestone-color: #fbbf24;
+            --focus-outline: #93c5fd;
+        }
+
         /* Base page styling */
         * {
             margin: 0;
@@ -19,41 +101,106 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: var(--bg-gradient);
             padding: 20px;
-            color: #333;
+            color: var(--text-body);
+            transition: background 0.3s ease, color 0.3s ease;
         }
 
         /* Card container */
         .card {
-            background-color: #ffffff;
+            background-color: var(--card-bg);
             padding: 40px;
             border-radius: 16px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+            box-shadow: var(--card-shadow);
             max-width: 480px;
             width: 100%;
             text-align: center;
+            position: relative;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        /* Theme Toggle Position & Style */
+        .theme-toggle-wrapper {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 16px;
+        }
+
+        .btn-theme {
+            background: var(--btn-theme-bg);
+            color: var(--btn-theme-text);
+            border: 1px solid var(--btn-theme-border);
+            padding: 6px 14px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            border-radius: 20px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease-in-out;
+            box-shadow: none;
+            touch-action: manipulation;
+        }
+
+        .btn-theme:hover {
+            background: var(--btn-theme-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
         }
 
         /* Heading */
         h1 {
-            color: #2d3748;
+            color: var(--text-heading);
             font-size: 2rem;
             margin-bottom: 16px;
+            transition: color 0.3s ease;
         }
 
         /* Paragraph */
         p {
-            color: #4a5568;
+            color: var(--text-body);
             font-size: 1.05rem;
             line-height: 1.6;
             margin-bottom: 24px;
+            transition: color 0.3s ease;
         }
 
-        /* Button */
+        /* Counter Display Badge */
+        .counter-display {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: var(--counter-badge-bg);
+            color: var(--counter-badge-text);
+            border: 1px solid var(--counter-badge-border);
+            border-radius: 12px;
+            padding: 10px 20px;
+            margin-bottom: 24px;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .counter-count {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        /* Button Group & Buttons */
+        .button-group {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
         button {
-            background: #667eea;
-            color: #ffffff;
+            background: var(--btn-primary-bg);
+            color: var(--btn-primary-text);
             border: none;
             padding: 12px 28px;
             font-size: 1rem;
@@ -61,54 +208,244 @@
             border-radius: 8px;
             cursor: pointer;
             transition: all 0.2s ease-in-out;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            box-shadow: var(--btn-primary-shadow);
+            touch-action: manipulation;
         }
 
         button:hover {
-            background: #5a67d8;
+            background: var(--btn-primary-hover);
             transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+            box-shadow: var(--btn-primary-hover-shadow);
         }
 
         button:active {
             transform: translateY(0);
         }
 
-        /* Message area for button click */
+        button:focus-visible {
+            outline: 3px solid var(--focus-outline);
+            outline-offset: 3px;
+        }
+
+        button.btn-reset {
+            background: var(--btn-reset-bg);
+            color: var(--btn-reset-text);
+            box-shadow: var(--btn-reset-shadow);
+        }
+
+        button.btn-reset:hover {
+            background: var(--btn-reset-hover);
+            color: var(--text-heading);
+            box-shadow: var(--btn-reset-hover-shadow);
+        }
+
+        /* Message area for button click & milestones */
         .result-message {
             margin-top: 20px;
             font-size: 1rem;
             font-weight: 500;
-            color: #2b6cb0;
-            min-height: 24px;
+            color: var(--result-color);
+            min-height: 28px;
+            transition: color 0.3s ease;
+        }
+
+        .result-message.is-milestone {
+            color: var(--milestone-color);
+            font-weight: 600;
+        }
+
+        /* Mobile-friendly responsiveness */
+        @media (max-width: 480px) {
+            body {
+                padding: 12px;
+            }
+
+            .card {
+                padding: 24px 18px;
+            }
+
+            h1 {
+                font-size: 1.6rem;
+            }
+
+            p {
+                font-size: 0.95rem;
+                margin-bottom: 18px;
+            }
+
+            .button-group {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .button-group button {
+                width: 100%;
+            }
+
+            .counter-display {
+                width: 100%;
+                padding: 8px 16px;
+            }
+        }
+
+        /* Accessibility: Reduced motion support */
+        @media (prefers-reduced-motion: reduce) {
+            body,
+            .card,
+            h1,
+            p,
+            button,
+            .btn-theme,
+            .counter-display,
+            .result-message {
+                transition: none !important;
+                transform: none !important;
+            }
         }
     </style>
 </head>
 
 <body>
 
-    <div class="card">
-        <h1>My First GitHub Website </h1>
+    <main class="card">
+        <div class="theme-toggle-wrapper">
+            <button id="themeToggle" class="btn-theme" type="button" aria-label="Toggle dark mode" aria-pressed="false">
+                <span id="themeIcon" aria-hidden="true">🌙</span>
+                <span id="themeText">Dark Mode</span>
+            </button>
+        </div>
+
+        <h1>My First GitHub Website</h1>
         <p>
             Welcome! This is a simple web page built with pure HTML, CSS, and JavaScript.
             You have successfully taken your first step into web development!
         </p>
-        <button id="clickBtn" type="button">Click Me!</button>
-        <div id="message" class="result-message"></div>
-    </div>
+
+        <!-- Clear Counter Display -->
+        <div class="counter-display" aria-label="Current click count">
+            <span>Total Clicks:</span>
+            <span id="counterValue" class="counter-count">0</span>
+        </div>
+
+        <div class="button-group">
+            <button id="clickBtn" type="button" aria-controls="message counterValue">Click Me!</button>
+            <button id="resetBtn" class="btn-reset" type="button" aria-controls="message counterValue">Reset Counter</button>
+        </div>
+
+        <div id="message" class="result-message" role="status" aria-live="polite" aria-atomic="true"></div>
+    </main>
 
     <script>
-        // Simple script to handle button interaction
+        // Safe localStorage helpers
+        function safeGetStorage(key) {
+            try {
+                return localStorage.getItem(key);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function safeSetStorage(key, value) {
+            try {
+                localStorage.setItem(key, value);
+            } catch (e) {
+                // Silently ignore storage quota or permission errors
+            }
+        }
+
+        // Counter functionality
         const button = document.getElementById('clickBtn');
+        const resetBtn = document.getElementById('resetBtn');
         const messageDiv = document.getElementById('message');
+        const counterValue = document.getElementById('counterValue');
+
+        // Load saved count safely
         let clickCount = 0;
+        const savedCountRaw = safeGetStorage('clickCount');
+        if (savedCountRaw !== null) {
+            const parsed = parseInt(savedCountRaw, 10);
+            if (Number.isFinite(parsed) && parsed >= 0) {
+                clickCount = parsed;
+            }
+        }
+
+        function renderCounter() {
+            counterValue.textContent = clickCount;
+
+            if (clickCount === 0) {
+                messageDiv.textContent = '';
+                messageDiv.classList.remove('is-milestone');
+            } else if (clickCount === 5) {
+                messageDiv.textContent = '🌟 High five! You reached 5 clicks!';
+                messageDiv.classList.add('is-milestone');
+            } else if (clickCount === 10) {
+                messageDiv.textContent = '🔥 Double digits! 10 clicks achieved!';
+                messageDiv.classList.add('is-milestone');
+            } else if (clickCount === 20) {
+                messageDiv.textContent = '🏆 Click Champion! Amazing 20 clicks!';
+                messageDiv.classList.add('is-milestone');
+            } else if (clickCount === 1) {
+                messageDiv.textContent = '🎉 You have clicked this button 1 time!';
+                messageDiv.classList.remove('is-milestone');
+            } else {
+                messageDiv.textContent = `🎉 You have clicked this button ${clickCount} times!`;
+                messageDiv.classList.remove('is-milestone');
+            }
+        }
+
+        // Initial render on load
+        renderCounter();
 
         button.addEventListener('click', function () {
             clickCount++;
-            if (clickCount === 1) {
-                messageDiv.textContent = '🎉 You have clicked this button 1 time!';
+            safeSetStorage('clickCount', clickCount.toString());
+            renderCounter();
+        });
+
+        resetBtn.addEventListener('click', function () {
+            clickCount = 0;
+            safeSetStorage('clickCount', '0');
+            renderCounter();
+        });
+
+        // Theme Toggle functionality
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const themeText = document.getElementById('themeText');
+
+        function updateThemeUI(isDark) {
+            if (isDark) {
+                document.documentElement.classList.add('dark-theme');
+                document.body.classList.add('dark-theme');
+                themeToggle.setAttribute('aria-pressed', 'true');
+                themeToggle.setAttribute('aria-label', 'Toggle light mode');
+                themeIcon.textContent = '☀️';
+                themeText.textContent = 'Light Mode';
             } else {
-                messageDiv.textContent = `🎉 You have clicked this button ${clickCount} times!`;
+                document.documentElement.classList.remove('dark-theme');
+                document.body.classList.remove('dark-theme');
+                themeToggle.setAttribute('aria-pressed', 'false');
+                themeToggle.setAttribute('aria-label', 'Toggle dark mode');
+                themeIcon.textContent = '🌙';
+                themeText.textContent = 'Dark Mode';
+            }
+        }
+
+        // Initialize theme UI based on applied class
+        const initialIsDark = document.documentElement.classList.contains('dark-theme');
+        updateThemeUI(initialIsDark);
+
+        themeToggle.addEventListener('click', function () {
+            const currentlyDark = document.documentElement.classList.contains('dark-theme');
+            const nextIsDark = !currentlyDark;
+            updateThemeUI(nextIsDark);
+            safeSetStorage('theme', nextIsDark ? 'dark' : 'light');
+        });
+
+        // Listen for OS theme changes if user hasn't set an explicit preference
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+            if (!safeGetStorage('theme')) {
+                updateThemeUI(e.matches);
             }
         });
     </script>
