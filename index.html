@@ -18,46 +18,54 @@
     <style>
         /* CSS Variables for Theming */
         :root {
-            --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            /* Soft, neutral backdrop: warm off-white base with gentle glows */
+            --bg-gradient:
+                radial-gradient(1100px 550px at 85% -10%, rgba(99, 102, 241, 0.10), rgba(99, 102, 241, 0)),
+                radial-gradient(900px 500px at -10% 105%, rgba(148, 163, 184, 0.14), rgba(148, 163, 184, 0)),
+                linear-gradient(180deg, #fafaf8 0%, #f1f0ee 100%);
             --card-bg: #ffffff;
             --text-heading: #2d3748;
             --text-body: #4a5568;
             --card-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
 
-            --btn-primary-bg: #667eea;
-            --btn-primary-hover: #5a67d8;
+            --btn-primary-bg: #6366f1;
+            --btn-primary-hover: #4f46e5;
             --btn-primary-text: #ffffff;
-            --btn-primary-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-            --btn-primary-hover-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
+            --btn-primary-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+            --btn-primary-hover-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
 
-            --btn-reset-bg: #edf2f7;
-            --btn-reset-hover: #e2e8f0;
-            --btn-reset-text: #4a5568;
+            --btn-reset-bg: #f1f0ee;
+            --btn-reset-hover: #e7e5e4;
+            --btn-reset-text: #57534e;
             --btn-reset-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
             --btn-reset-hover-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
 
-            --btn-theme-bg: #f7fafc;
-            --btn-theme-hover: #edf2f7;
-            --btn-theme-text: #4a5568;
-            --btn-theme-border: #e2e8f0;
+            --btn-theme-bg: #fafaf8;
+            --btn-theme-hover: #f1f0ee;
+            --btn-theme-text: #57534e;
+            --btn-theme-border: #e7e5e4;
 
-            --result-color: #2b6cb0;
-            --focus-outline: #2d3748;
+            --result-color: #4338ca;
+            --focus-outline: #4338ca;
 
             /* Study Timer variables */
-            --timer-color: #2b6cb0;
+            --timer-color: #4338ca;
             --input-bg: #ffffff;
-            --input-border: #cbd5e0;
+            --input-border: #d6d3d1;
             --input-text: #2d3748;
-            --ring-track: #e2e8f0;
+            --ring-track: #e7e5e4;
         }
 
         :root.dark-theme,
         body.dark-theme {
-            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
-            --card-bg: #1e293b;
-            --text-heading: #f8fafc;
-            --text-body: #cbd5e1;
+            /* Same backdrop for dark: deep warm-charcoal base (well below the #1c1917 card) with soft glows */
+            --bg-gradient:
+                radial-gradient(1100px 550px at 85% -10%, rgba(99, 102, 241, 0.12), rgba(99, 102, 241, 0)),
+                radial-gradient(900px 500px at -10% 105%, rgba(214, 211, 209, 0.09), rgba(214, 211, 209, 0)),
+                linear-gradient(180deg, #0e0c0a 0%, #070605 100%);
+            --card-bg: #1c1917;
+            --text-heading: #fafaf8;
+            --text-body: #d6d3d1;
             --card-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
 
             --btn-primary-bg: #6366f1;
@@ -66,26 +74,26 @@
             --btn-primary-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
             --btn-primary-hover-shadow: 0 6px 16px rgba(99, 102, 241, 0.5);
 
-            --btn-reset-bg: #334155;
-            --btn-reset-hover: #475569;
-            --btn-reset-text: #f1f5f9;
+            --btn-reset-bg: #292524;
+            --btn-reset-hover: #44403c;
+            --btn-reset-text: #f5f5f4;
             --btn-reset-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
             --btn-reset-hover-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
 
-            --btn-theme-bg: #334155;
-            --btn-theme-hover: #475569;
-            --btn-theme-text: #f1f5f9;
-            --btn-theme-border: #475569;
+            --btn-theme-bg: #292524;
+            --btn-theme-hover: #44403c;
+            --btn-theme-text: #f5f5f4;
+            --btn-theme-border: #44403c;
 
-            --result-color: #93c5fd;
-            --focus-outline: #93c5fd;
+            --result-color: #a5b4fc;
+            --focus-outline: #a5b4fc;
 
             /* Study Timer variables (dark theme) */
-            --timer-color: #93c5fd;
-            --input-bg: #0f172a;
-            --input-border: #475569;
-            --input-text: #f1f5f9;
-            --ring-track: #334155;
+            --timer-color: #a5b4fc;
+            --input-bg: #0c0a09;
+            --input-border: #44403c;
+            --input-text: #f5f5f4;
+            --ring-track: #34302c;
         }
 
         /* Base page styling */
@@ -102,6 +110,7 @@
             justify-content: center;
             align-items: center;
             background: var(--bg-gradient);
+            background-attachment: fixed; /* keep the backdrop stable while content scrolls */
             padding: 20px;
             color: var(--text-body);
             transition: background 0.3s ease, color 0.3s ease;
