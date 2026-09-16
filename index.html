@@ -131,6 +131,17 @@
                     <button id="setGoalBtn" class="goal-set-btn" type="button">Set</button>
                 </div>
             </div>
+
+            <!-- Additive: Weekly Focus Chart (rolling last 7 days, real data only) -->
+            <div id="weeklyPanel" class="weekly-panel">
+                <div class="weekly-head">
+                    <p class="weekly-title">📈 Weekly focus</p>
+                    <p class="weekly-total">Total this week: <strong id="weeklyTotal">0m</strong></p>
+                </div>
+                <div id="weeklyChart" class="weekly-chart" role="group"
+                    aria-label="Bar chart of focus time for the last 7 days"></div>
+                <p id="weeklyEmpty" class="weekly-empty" hidden>No focus time in the last 7 days yet — finish a session to see it here.</p>
+            </div>
         </section>
 
         <div class="layout">

@@ -530,6 +530,10 @@ function renderDashboard() {
     goalPanelEl.classList.toggle('goal-met', goalMet);
     goalReachedEl.hidden = !goalMet;
 
+    // Additive: Weekly Focus Chart shares renderDashboard()'s triggers
+    // (page load, completed session, Reset Sessions, goal change)
+    renderWeeklyChart();
+
     syncGoalUI();
 }
 
@@ -570,6 +574,88 @@ goalCustomEl.addEventListener('keydown', function (e) {
         setCustomGoal();
     }
 });
+
+// ===== Weekly Focus Chart (additive: rolling last 7 days) =====
+// Reads the existing focusLog (localStorage 'focusDailyLog') only —
+// no sample data, no new storage. Re-renders via renderDashboard().
+const WEEKLY_DAYS = 7;
+const weeklyPanelEl = document.getElementById('weeklyPanel');
+const weeklyChartEl = document.getElementById('weeklyChart');
+const weeklyTotalEl = document.getElementById('weeklyTotal');
+const weeklyEmptyEl = document.getElementById('weeklyEmpty');
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function renderWeeklyChart() {
+    if (!weeklyChartEl) return; // markup missing: fail silently, nothing else breaks
+
+    // Build the last 7 dates ending today (local time, same YYYY-MM-DD keys as focusLog)
+    const days = [];
+    const now = new Date();
+    for (let i = WEEKLY_DAYS - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const key = d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+        days.push({ key: key, label: WEEKDAY_NAMES[d.getDay()], ms: focusLog[key] || 0, isToday: i === 0 });
+    }
+
+    const weekTotalMs = days.reduce(function (sum, day) { return sum + day.ms; }, 0);
+    weeklyTotalEl.textContent = formatFocus(weekTotalMs);
+
+    const hasData = weekTotalMs > 0;
+    weeklyEmptyEl.hidden = hasData;
+    weeklyChartEl.hidden = !hasData;
+    if (!hasData) {
+        weeklyChartEl.innerHTML = ''; // nothing rendered when there is truly no data
+        weeklyPanelEl.setAttribute('aria-label', 'Weekly focus chart: no focus time recorded in the last 7 days');
+        return;
+    }
+
+    // Scale bars against the busiest day of the week so one long day
+    // doesn't flatten all the others; zero days show a tiny stub.
+    const maxDayMs = days.reduce(function (max, day) { return Math.max(max, day.ms); }, 0);
+    weeklyChartEl.innerHTML = ''; // textContent-only nodes below: no injection risk
+
+    days.forEach(function (day) {
+        const col = document.createElement('div');
+        col.className = 'weekly-col' + (day.isToday ? ' is-today' : '');
+
+        const value = document.createElement('span');
+        value.className = 'weekly-value';
+        value.textContent = formatFocus(day.ms);
+
+        const barTrack = document.createElement('div');
+        barTrack.className = 'weekly-bar-track';
+
+        const bar = document.createElement('div');
+        bar.className = 'weekly-bar';
+        const ratio = maxDayMs > 0 ? day.ms / maxDayMs : 0;
+        // 6% shows a visible stub for zero days without implying any focus time
+        bar.style.height = day.ms > 0 ? Math.max(8, Math.round(ratio * 100)) + '%' : '6%';
+        const minutes = Math.round(day.ms / 60000);
+        bar.title = day.label + ': ' + formatFocus(day.ms);
+        bar.setAttribute('role', 'img');
+        bar.setAttribute('aria-label',
+            (day.isToday ? 'Today' : day.label) + ': ' + formatFocus(day.ms) +
+            ' (' + minutes + ' minutes)');
+
+        barTrack.appendChild(bar);
+
+        const label = document.createElement('span');
+        label.className = 'weekly-day';
+        label.textContent = day.label + (day.isToday ? ' ·' : '');
+
+        col.appendChild(value);
+        col.appendChild(barTrack);
+        col.appendChild(label);
+        weeklyChartEl.appendChild(col);
+    });
+
+    weeklyPanelEl.setAttribute('aria-label',
+        'Weekly focus chart: ' + formatFocus(weekTotalMs) + ' across the last 7 days');
+}
+
+renderWeeklyChart();
 
 renderDashboard();
 
