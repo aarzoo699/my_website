@@ -106,7 +106,22 @@ function loadSavedDuration() {
     return DEFAULT_DURATION_MS;
 }
 
+// Defensive (Day 8 bugfix): single validator for any incoming duration value.
+// Returns a safe whole-second value (1s–180min) or the default duration.
+function sanitizeDurationMs(value) {
+    const n = Number(value);
+    if (isFinite(n) && n >= 1000 && n <= MAX_DURATION_MS && n % 1000 === 0) {
+        return n;
+    }
+    return DEFAULT_DURATION_MS;
+}
+
 function formatTime(ms) {
+    // Defensive (Day 8 bugfix): guard the display — NaN/undefined/etc. must never
+    // reach the screen as "NaN:NaN". Falls back to the default duration instead.
+    if (!isFinite(ms) || ms < 0) {
+        ms = DEFAULT_DURATION_MS;
+    }
     const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
@@ -307,10 +322,13 @@ sessionResetBtn.addEventListener('click', function () {
     try {
         localStorage.setItem(TOTAL_KEY, '0');
     } catch (err) { /* keep in-memory zero */ }
+    // Additive Day 8: clear today's focus log + current streak (best streak kept as record)
+    resetDashboardData();
     renderSessions();
     renderHistory();
     renderStats();
-    announce('Study sessions and history reset to zero');
+    renderDashboard();
+    announce('Study sessions, history, goal progress and streak reset to zero');
 });
 
 function recordCompletedSession(ms) {
@@ -325,6 +343,10 @@ function recordCompletedSession(ms) {
         localStorage.setItem(TOTAL_KEY, String(totalFocusMs));
     } catch (err) { /* keep running in-memory total */ }
     renderStats();
+    // Additive Day 8: dashboard (focus log + streak)
+    recordFocusForToday(ms);
+    updateStreakOnSession();
+    renderDashboard();
     recordSessionHistory(ms);
     let message = "Time's up! Session " + sessionCount + " complete.";
     if (sessionCount % 5 === 0) {
@@ -336,6 +358,220 @@ function recordCompletedSession(ms) {
 renderSessions();
 renderHistory();
 renderStats();
+
+// ===== Productivity Dashboard (Day 8: goal, focus log, streak) =====
+const GOAL_KEY = 'dailyGoalMinutes';
+const FOCUS_LOG_KEY = 'focusDailyLog';   // additive: {"YYYY-MM-DD": focusMs}
+const STREAK_KEY = 'dayStreak';          // additive: {last, current, best}
+const DEFAULT_GOAL_MIN = 60;
+const MIN_GOAL_MIN = 5;
+const MAX_GOAL_MIN = 720;
+const FOCUS_LOG_DAYS = 35;               // keep ~5 weeks of per-day focus
+const goalPanelEl = document.getElementById('goalPanel');
+const goalDetailEl = document.getElementById('goalDetail');
+const goalBarEl = document.getElementById('goalBar');
+const goalBarFillEl = document.getElementById('goalBarFill');
+const goalReachedEl = document.getElementById('goalReached');
+const goalChips = document.querySelectorAll('.goal-chip');
+const goalCustomEl = document.getElementById('goalCustom');
+const setGoalBtn = document.getElementById('setGoalBtn');
+const streakCountEl = document.getElementById('streakCount');
+const streakPluralEl = document.getElementById('streakPlural');
+const streakBestEl = document.getElementById('streakBest');
+const todayFocusEl = document.getElementById('todayFocus');
+const goalPercentageEl = document.getElementById('goalPercentage');
+
+let dailyGoalMin = loadDailyGoal();
+let focusLog = loadFocusLog();
+let streak = loadStreak();
+
+function loadDailyGoal() {
+    const saved = Number(localStorage.getItem(GOAL_KEY));
+    if (isFinite(saved) && saved >= MIN_GOAL_MIN && saved <= MAX_GOAL_MIN) {
+        return Math.round(saved);
+    }
+    return DEFAULT_GOAL_MIN;
+}
+
+function loadFocusLog() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(FOCUS_LOG_KEY));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            // Keep only sane numeric entries, then prune to the recent window
+            const clean = {};
+            Object.keys(parsed).forEach(function (key) {
+                const ms = Number(parsed[key]);
+                if (/^\d{4}-\d{2}-\d{2}$/.test(key) && isFinite(ms) && ms >= 0) {
+                    clean[key] = ms;
+                }
+            });
+            return pruneFocusLog(clean);
+        }
+    } catch (err) { /* corrupt or missing -> start fresh */ }
+    return {};
+}
+
+function pruneFocusLog(log) {
+    // newest last; keep only the most recent FOCUS_LOG_DAYS dates
+    const keys = Object.keys(log).sort();
+    const keep = keys.slice(-FOCUS_LOG_DAYS);
+    const pruned = {};
+    keep.forEach(function (key) { pruned[key] = log[key]; });
+    return pruned;
+}
+
+function saveFocusLog() {
+    try {
+        localStorage.setItem(FOCUS_LOG_KEY, JSON.stringify(pruneFocusLog(focusLog)));
+    } catch (err) { /* storage unavailable: keep in-memory value */ }
+}
+
+function todayFocusMs() {
+    return focusLog[todayDateString()] || 0;
+}
+
+function loadStreak() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(STREAK_KEY));
+        if (parsed && typeof parsed === 'object' &&
+            typeof parsed.current === 'number' && isFinite(parsed.current) &&
+            typeof parsed.best === 'number' && isFinite(parsed.best)) {
+            return {
+                last: typeof parsed.last === 'string' ? parsed.last : null,
+                current: Math.max(0, Math.floor(parsed.current)),
+                best: Math.max(0, Math.floor(parsed.best))
+            };
+        }
+    } catch (err) { /* corrupt or missing -> start fresh */ }
+    return { last: null, current: 0, best: 0 };
+}
+
+function saveStreak() {
+    try {
+        localStorage.setItem(STREAK_KEY, JSON.stringify(streak));
+    } catch (err) { /* storage unavailable: keep in-memory value */ }
+}
+
+function daysBetween(fromDateStr, toDateStr) {
+    // Whole days between two YYYY-MM-DD strings (local time, DST-safe)
+    const from = new Date(fromDateStr + 'T00:00:00');
+    const to = new Date(toDateStr + 'T00:00:00');
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) return NaN;
+    return Math.round((to - from) / 86400000);
+}
+
+function recordFocusForToday(ms) {
+    const today = todayDateString();
+    focusLog[today] = (focusLog[today] || 0) + ms;
+    saveFocusLog();
+}
+
+function updateStreakOnSession() {
+    const today = todayDateString();
+    if (streak.last === today) return; // already counted today
+    const gap = streak.last === null ? NaN : daysBetween(streak.last, today);
+    // Consecutive day (yesterday or earlier today) extends; anything else restarts at 1
+    streak.current = (gap === 1) ? streak.current + 1 : 1;
+    streak.last = today;
+    streak.best = Math.max(streak.best, streak.current);
+    saveStreak();
+}
+
+function resetDashboardData() {
+    focusLog = {};
+    try {
+        localStorage.removeItem(FOCUS_LOG_KEY);
+    } catch (err) { /* nothing to do */ }
+    streak.current = 0;
+    streak.last = null;
+    // streak.best intentionally kept as the all-time record
+    saveStreak();
+}
+
+function syncGoalUI() {
+    goalCustomEl.value = String(dailyGoalMin);
+    goalChips.forEach(function (chip) {
+        const isMatch = Number(chip.dataset.goal) === dailyGoalMin;
+        chip.setAttribute('aria-pressed', isMatch ? 'true' : 'false');
+    });
+}
+
+function renderDashboard() {
+    // Streak tile: shows the current streak; if today has no session yet, the
+    // streak from yesterday still stands (it only breaks after a full missed day)
+    let displayStreak = streak.current;
+    const today = todayDateString();
+    if (streak.last !== null && streak.last !== today) {
+        const gap = daysBetween(streak.last, today);
+        if (gap === 1) displayStreak = streak.current; // yesterday counted; still alive
+        else if (gap > 1) displayStreak = 0;           // a full day was missed
+    }
+    streakCountEl.textContent = String(displayStreak);
+    streakPluralEl.textContent = displayStreak === 1 ? '' : 's';
+    streakBestEl.textContent = String(Math.max(streak.best, displayStreak));
+
+    // Today's focus tile
+    const todaysMs = todayFocusMs();
+    todayFocusEl.textContent = formatFocus(todaysMs);
+
+    // Goal progress bar + percentage
+    const goalMs = dailyGoalMin * 60000;
+    const ratio = goalMs > 0 ? Math.min(1, todaysMs / goalMs) : 0;
+    const percent = Math.floor(ratio * 100);
+    goalPercentageEl.textContent = percent + '%';
+    goalBarFillEl.style.width = (ratio * 100) + '%';
+    goalBarEl.setAttribute('aria-valuemax', String(dailyGoalMin));
+    goalBarEl.setAttribute('aria-valuenow', String(percent));
+    goalBarEl.setAttribute('aria-valuetext',
+        formatFocus(todaysMs) + ' of ' + formatFocus(goalMs) + ' (' + percent + '%)');
+    goalDetailEl.textContent = formatFocus(todaysMs) + ' of ' + formatFocus(goalMs) + ' focus time today';
+
+    const goalMet = todaysMs >= goalMs;
+    goalPanelEl.classList.toggle('goal-met', goalMet);
+    goalReachedEl.hidden = !goalMet;
+
+    syncGoalUI();
+}
+
+function applyGoal(minutes) {
+    const clamped = clampInt(minutes, MIN_GOAL_MIN, MAX_GOAL_MIN);
+    if (!isFinite(clamped) || clamped < MIN_GOAL_MIN) {
+        dailyGoalMin = DEFAULT_GOAL_MIN;
+    } else {
+        dailyGoalMin = clamped;
+    }
+    try {
+        localStorage.setItem(GOAL_KEY, String(dailyGoalMin));
+    } catch (err) { /* keep in-memory goal */ }
+    renderDashboard();
+    announce('Daily goal set to ' + dailyGoalMin + ' minutes');
+}
+
+goalChips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+        applyGoal(Number(chip.dataset.goal));
+    });
+});
+
+function setCustomGoal() {
+    const raw = goalCustomEl.value;
+    if (raw === '' || !isFinite(Number(raw))) {
+        announce('Please enter a goal in minutes');
+        syncGoalUI(); // restore the current goal in the input
+        return;
+    }
+    applyGoal(Math.round(Number(raw)));
+}
+
+setGoalBtn.addEventListener('click', setCustomGoal);
+goalCustomEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        setCustomGoal();
+    }
+});
+
+renderDashboard();
 
 // --- Completion sound: short beeps via Web Audio API (no files, no libraries) ---
 let audioCtx = null;
@@ -405,6 +641,9 @@ function completeTimer() {
 
 function startTimer() {
     if (timerState === 'running') return; // guard against double-click = double speed
+    // Defensive (Day 8 bugfix): sanitize state before any arithmetic touches it
+    remainingMs = sanitizeDurationMs(remainingMs);
+    runTotalMs = sanitizeDurationMs(runTotalMs);
     if (remainingMs <= 0) {
         // "Start" after Time's up restarts the last chosen duration
         loadDuration(selectedMs);
@@ -452,6 +691,12 @@ function pauseTimer() {
 }
 
 function loadDuration(ms) {
+    // Defensive (Day 8 bugfix): never let a non-finite/invalid value (NaN, undefined,
+    // 0, negative) into the timer state or localStorage — fall back to the default.
+    ms = Number(ms);
+    if (!isFinite(ms) || ms <= 0 || ms > MAX_DURATION_MS || ms % 1000 !== 0) {
+        ms = DEFAULT_DURATION_MS;
+    }
     // Fully reset the machine before loading a new duration (e.g. preset clicked mid-run)
     stopTicking();
     timerState = 'idle';
@@ -479,7 +724,11 @@ presetButtons.forEach(function (btn) {
             other.setAttribute('aria-pressed', 'false');
         });
         btn.setAttribute('aria-pressed', 'true');
-        loadDuration(Number(btn.dataset.minutes) * 60 * 1000);
+        // Defensive (Day 8 bugfix): only real timer presets carry data-minutes;
+        // anything else falls back to the default duration instead of NaN.
+        const minutes = Number(btn.dataset.minutes);
+        const ms = (isFinite(minutes) && minutes > 0) ? minutes * 60 * 1000 : DEFAULT_DURATION_MS;
+        loadDuration(ms);
     });
 });
 

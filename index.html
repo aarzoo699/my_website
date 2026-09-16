@@ -48,7 +48,7 @@
 
         <!-- Hero -->
         <section class="hero anim-rise" style="--delay:.02s">
-            <p class="hero-eyebrow">Day 7 · UI redesign</p>
+            <p class="hero-eyebrow">Day 8 · Productivity dashboard</p>
             <h1>Focus deeper with <span class="gradient-text">FocusFlow</span></h1>
             <p class="hero-sub">
                 Pick a duration, start the timer, and let FocusFlow track every completed study session —
@@ -79,6 +79,58 @@
                     <p class="stat-label">Total focus time</p>
                 </div>
             </article>
+        </section>
+
+        <!-- Productivity Dashboard (Day 8) -->
+        <section class="dashboard anim-rise" style="--delay:.23s" aria-labelledby="dashboardHeading">
+            <h2 id="dashboardHeading"><span aria-hidden="true">📊</span> Productivity Dashboard</h2>
+
+            <div class="dashboard-grid">
+                <article class="dash-tile">
+                    <span class="dash-icon" aria-hidden="true">🔥</span>
+                    <div class="dash-body">
+                        <p class="dash-value"><strong id="streakCount">0</strong><span class="dash-unit"> day<span id="streakPlural">s</span></span></p>
+                        <p class="dash-label">Study streak · Best: <strong id="streakBest">0</strong></p>
+                    </div>
+                </article>
+                <article class="dash-tile">
+                    <span class="dash-icon" aria-hidden="true">⏱️</span>
+                    <div class="dash-body">
+                        <p class="dash-value"><strong id="todayFocus">0m</strong></p>
+                        <p class="dash-label">Today's focus time</p>
+                    </div>
+                </article>
+                <article class="dash-tile">
+                    <span class="dash-icon" aria-hidden="true">🎯</span>
+                    <div class="dash-body">
+                        <p class="dash-value"><strong id="goalPercentage">0%</strong></p>
+                        <p class="dash-label">Daily goal progress</p>
+                    </div>
+                </article>
+            </div>
+
+            <div id="goalPanel" class="goal-panel">
+                <p id="goalDetail" class="goal-detail">0m of 60m focus time today</p>
+                <div id="goalBar" class="goal-bar" role="progressbar" aria-label="Daily study goal progress"
+                    aria-valuemin="0" aria-valuemax="60" aria-valuenow="0">
+                    <div id="goalBarFill" class="goal-bar-fill"></div>
+                </div>
+                <p id="goalReached" class="goal-reached" hidden>🎉 Daily goal reached — great work!</p>
+
+                <div class="goal-setter" role="group" aria-label="Set daily goal">
+                    <span class="goal-setter-label">Daily goal:</span>
+                    <button class="goal-chip" type="button" data-goal="15" aria-pressed="false">15m</button>
+                    <button class="goal-chip" type="button" data-goal="30" aria-pressed="false">30m</button>
+                    <button class="goal-chip" type="button" data-goal="60" aria-pressed="false">60m</button>
+                    <button class="goal-chip" type="button" data-goal="120" aria-pressed="false">120m</button>
+                    <label class="goal-custom">Custom
+                        <input id="goalCustom" type="number" min="5" max="720" step="5" value="60" inputmode="numeric"
+                            aria-label="Custom daily goal in minutes">
+                        <span>min</span>
+                    </label>
+                    <button id="setGoalBtn" class="goal-set-btn" type="button">Set</button>
+                </div>
+            </div>
         </section>
 
         <div class="layout">

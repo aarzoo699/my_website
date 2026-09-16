@@ -636,6 +636,217 @@ button {
     box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
+/* ---------- Productivity Dashboard (Day 8) ---------- */
+.dashboard {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 20px;
+    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.dashboard h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin-bottom: 18px;
+    transition: color 0.3s ease;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.dash-tile {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    transition: transform 0.25s ease, border-color 0.25s ease,
+        background-color 0.3s ease;
+}
+
+.dash-tile:hover {
+    transform: translateY(-2px);
+    border-color: var(--accent-glow);
+}
+
+.dash-icon {
+    flex: none;
+    width: 42px;
+    height: 42px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    display: grid;
+    place-items: center;
+    font-size: 1.15rem;
+}
+
+.dash-body {
+    min-width: 0;
+}
+
+.dash-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+}
+
+.dash-unit {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-left: 4px;
+}
+
+.dash-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.dash-label strong {
+    color: var(--text-strong);
+}
+
+/* ---------- Daily goal panel ---------- */
+.goal-panel {
+    margin-top: 16px;
+    padding: 18px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.goal-panel.goal-met {
+    border-color: var(--success);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+:root.dark-theme .goal-panel.goal-met {
+    box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.15);
+}
+
+.goal-detail {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 10px;
+}
+
+.goal-detail strong {
+    color: var(--text-strong);
+}
+
+.goal-bar {
+    width: 100%;
+    height: 14px;
+    background: var(--surface-3);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.goal-bar-fill {
+    width: 0%;
+    height: 100%;
+    background: var(--grad);
+    border-radius: 999px;
+    transition: width 0.5s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.goal-panel.goal-met .goal-bar-fill {
+    background: linear-gradient(135deg, var(--success), #22d3ee);
+}
+
+.goal-reached {
+    margin-top: 10px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--success);
+    animation: pop-in 0.35s ease;
+}
+
+.goal-setter {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    font-size: 0.88rem;
+}
+
+.goal-setter-label {
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.goal-setter .goal-chip,
+.goal-setter .goal-set-btn {
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease,
+        border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.goal-setter .goal-chip:hover,
+.goal-setter .goal-set-btn:hover {
+    background: var(--surface-3);
+    color: var(--text-strong);
+    border-color: var(--border-strong);
+    transform: translateY(-2px);
+}
+
+.goal-chip[aria-pressed="true"] {
+    background: var(--grad);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: var(--shadow-primary);
+    transform: scale(1.04);
+}
+
+.goal-custom {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.goal-custom input {
+    width: 72px;
+    padding: 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-strong);
+    font-size: 0.95rem;
+    text-align: center;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.3s ease;
+}
+
+.goal-custom input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
 /* ---------- Session history ---------- */
 .side-card {
     display: flex;
@@ -856,6 +1067,14 @@ button {
     .hero {
         padding-top: 40px;
     }
+
+    .dashboard-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .dash-label {
+        white-space: normal;
+    }
 }
 
 @media (max-width: 640px) {
@@ -893,6 +1112,22 @@ button {
     .hist-when {
         margin-left: 0;
         width: 100%;
+    }
+
+    .dashboard-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dash-tile {
+        padding: 14px 12px;
+    }
+
+    .goal-setter {
+        gap: 8px;
+    }
+
+    .goal-custom input {
+        width: 84px;
     }
 }
 
