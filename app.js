@@ -2,7 +2,8 @@
 // FocusFlow — app.js
 // All original features preserved: theme toggle, click counter,
 // study timer, session tracking, session history, completion
-// sound. Additive: today's sessions + total focus time stats.
+// sound. Additive: today's sessions + total focus time stats,
+// productivity dashboard, weekly focus chart, task manager.
 // ============================================================
 
 // ===== Theme Toggle functionality =====
@@ -874,3 +875,224 @@ function syncPresetUI() {
         customSec.value = Math.round((selectedMs % 60000) / 1000);
     }
 }
+
+// ===== Task Manager (Day 9: add, complete/uncomplete, delete, priority, count) =====
+const TASKS_KEY = 'tasks';               // additive: [{id, text, done, priority, createdAt}]
+const MAX_TASKS = 50;                    // keep the list (and storage) small
+const VALID_PRIORITIES = ['low', 'medium', 'high'];
+const PRIORITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High' };
+const taskInputEl = document.getElementById('taskInput');
+const addTaskBtn = document.getElementById('addTaskBtn');
+const taskChips = document.querySelectorAll('.task-chip');
+const taskCountEl = document.getElementById('taskCount');
+const taskListEl = document.getElementById('taskList');
+const taskEmptyEl = document.getElementById('taskEmpty');
+const taskAnnounceEl = document.getElementById('taskAnnounce');
+const clearDoneBtn = document.getElementById('clearDoneBtn');
+
+let tasks = loadTasks();
+let selectedPriority = 'medium';
+
+function loadTasks() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(TASKS_KEY));
+        if (!Array.isArray(parsed)) return [];
+        // Keep only well-formed entries; anything unrecoverable is dropped.
+        // A bad/missing priority is RECOVERABLE: coerce it instead of losing the task
+        // (dropping here used to silently delete tasks on reload — Day 9 bugfix).
+        return parsed
+            .filter(function (t) {
+                return t && typeof t === 'object' &&
+                    typeof t.id === 'string' && t.id.length > 0 &&
+                    typeof t.text === 'string' && t.text.trim().length > 0 &&
+                    typeof t.done === 'boolean';
+            })
+            .map(function (t) {
+                return {
+                    id: t.id,
+                    text: t.text.trim(),
+                    done: t.done,
+                    priority: VALID_PRIORITIES.indexOf(t.priority) !== -1 ? t.priority : 'medium',
+                    createdAt: isFinite(Number(t.createdAt)) ? Number(t.createdAt) : 0
+                };
+            })
+            .slice(0, MAX_TASKS);
+    } catch (err) {
+        return []; // missing or corrupt data -> start fresh
+    }
+}
+
+function saveTasks() {
+    try {
+        localStorage.setItem(TASKS_KEY, JSON.stringify(tasks.slice(0, MAX_TASKS)));
+    } catch (err) {
+        // Storage full or unavailable: keep showing the in-memory list
+    }
+}
+
+function announceTask(text) {
+    // New content in the live region is read out by screen readers
+    taskAnnounceEl.textContent = text;
+}
+
+function syncTaskChips() {
+    taskChips.forEach(function (chip) {
+        chip.setAttribute('aria-pressed', chip.dataset.priority === selectedPriority ? 'true' : 'false');
+    });
+}
+
+function makeTaskId() {
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function addTask() {
+    const text = taskInputEl.value.trim().replace(/\s+/g, ' ');
+    if (text.length === 0) {
+        announceTask('Please type a task before adding');
+        taskInputEl.focus();
+        return;
+    }
+    if (tasks.length >= MAX_TASKS) {
+        announceTask('Task list is full — complete or delete some tasks first');
+        return;
+    }
+    tasks.unshift({
+        id: makeTaskId(),
+        text: text,
+        done: false,
+        priority: selectedPriority,
+        createdAt: Date.now()
+    });
+    saveTasks();
+    renderTasks();
+    taskInputEl.value = '';
+    taskInputEl.focus();
+    announceTask('Task added: ' + text + ' (' + PRIORITY_LABELS[selectedPriority] + ' priority)');
+}
+
+function toggleTaskDone(id) {
+    let doneText = null;
+    tasks.forEach(function (t) {
+        if (t.id === id) {
+            t.done = !t.done;
+            doneText = (t.done ? 'Completed: ' : 'Reopened: ') + t.text;
+        }
+    });
+    if (doneText === null) return; // unknown id: nothing to do
+    saveTasks();
+    renderTasks();
+    announceTask(doneText);
+}
+
+function deleteTask(id) {
+    const index = tasks.findIndex(function (t) { return t.id === id; });
+    if (index === -1) return; // unknown id: nothing to do
+    const removed = tasks.splice(index, 1)[0];
+    saveTasks();
+    renderTasks();
+    announceTask('Task deleted: ' + removed.text);
+}
+
+function clearCompletedTasks() {
+    const openCount = tasks.length - tasks.filter(function (t) { return t.done; }).length;
+    tasks = tasks.filter(function (t) { return !t.done; });
+    saveTasks();
+    renderTasks();
+    announceTask(openCount === 1
+        ? 'Completed tasks cleared — 1 open task left'
+        : 'Completed tasks cleared — ' + openCount + ' open tasks left');
+}
+
+function renderTasks() {
+    taskListEl.innerHTML = ''; // textContent-only nodes below: no injection risk
+
+    if (tasks.length === 0) {
+        taskListEl.hidden = true;
+        taskEmptyEl.hidden = false;
+    } else {
+        taskListEl.hidden = false;
+        taskEmptyEl.hidden = true;
+        tasks.forEach(function (task, index) {
+            const li = document.createElement('li');
+            li.className = 'task-item' + (task.done ? ' done' : '');
+            li.style.setProperty('--delay', (index * 0.05) + 's'); // staggered pop-in
+            li.dataset.id = task.id;
+
+            const check = document.createElement('input');
+            check.type = 'checkbox';
+            check.className = 'task-check';
+            check.checked = task.done;
+            check.setAttribute('aria-label',
+                (task.done ? 'Mark as not done: ' : 'Mark as done: ') + task.text);
+
+            const badge = document.createElement('span');
+            badge.className = 'task-priority priority-' + task.priority;
+            badge.textContent = PRIORITY_LABELS[task.priority];
+
+            const text = document.createElement('span');
+            text.className = 'task-text';
+            text.textContent = task.text; // textContent: user input is never parsed as HTML
+
+            const del = document.createElement('button');
+            del.type = 'button';
+            del.className = 'task-delete';
+            del.textContent = '🗑';
+            del.setAttribute('aria-label', 'Delete task: ' + task.text);
+
+            li.appendChild(check);
+            li.appendChild(badge);
+            li.appendChild(text);
+            li.appendChild(del);
+            taskListEl.appendChild(li);
+        });
+    }
+
+    // Task count line
+    const doneCount = tasks.reduce(function (n, t) { return n + (t.done ? 1 : 0); }, 0);
+    const openCount = tasks.length - doneCount;
+    taskCountEl.textContent = openCount + ' open · ' + doneCount + ' completed';
+
+    // "Clear completed" only makes sense when something is completed
+    clearDoneBtn.hidden = doneCount === 0;
+}
+
+addTaskBtn.addEventListener('click', addTask);
+
+taskInputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        addTask();
+    }
+});
+
+taskChips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+        selectedPriority = VALID_PRIORITIES.indexOf(chip.dataset.priority) !== -1
+            ? chip.dataset.priority
+            : 'medium';
+        syncTaskChips();
+    });
+});
+
+// Event delegation: one listener handles every row's checkbox and delete button
+// (rows are re-rendered on each change, so per-row listeners would leak)
+taskListEl.addEventListener('click', function (e) {
+    const row = e.target.closest('.task-item');
+    if (!row) return;
+    if (e.target.classList.contains('task-delete')) {
+        deleteTask(row.dataset.id);
+    }
+});
+
+taskListEl.addEventListener('change', function (e) {
+    if (e.target.classList.contains('task-check')) {
+        const row = e.target.closest('.task-item');
+        if (row) toggleTaskDone(row.dataset.id);
+    }
+});
+
+clearDoneBtn.addEventListener('click', clearCompletedTasks);
+
+// Initialise the task manager from restored state
+syncTaskChips();
+renderTasks();

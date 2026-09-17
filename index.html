@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="FocusFlow — a modern study timer with session tracking and history.">
+    <meta name="description" content="FocusFlow — a modern study timer with session tracking, history and a task manager.">
     <meta name="color-scheme" content="light dark">
     <title>FocusFlow — Study Timer &amp; Productivity</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
@@ -48,7 +48,7 @@
 
         <!-- Hero -->
         <section class="hero anim-rise" style="--delay:.02s">
-            <p class="hero-eyebrow">Day 8 · Productivity dashboard</p>
+            <p class="hero-eyebrow">Day 9 · Task manager</p>
             <h1>Focus deeper with <span class="gradient-text">FocusFlow</span></h1>
             <p class="hero-sub">
                 Pick a duration, start the timer, and let FocusFlow track every completed study session —
@@ -215,6 +215,32 @@
             </section>
 
         </div>
+
+        <!-- Task Manager (Day 9) -->
+        <section class="card task-section anim-rise" style="--delay:.35s" aria-labelledby="taskHeading">
+            <h2 id="taskHeading"><span aria-hidden="true">✅</span> Task Manager</h2>
+
+            <div class="task-form">
+                <input id="taskInput" class="task-input" type="text" maxlength="80"
+                    placeholder="Add a task… (e.g. Review Day 8 notes)" aria-label="New task description">
+                <div class="task-chips" role="group" aria-label="Task priority">
+                    <button class="task-chip" type="button" data-priority="low" aria-pressed="false">Low</button>
+                    <button class="task-chip" type="button" data-priority="medium" aria-pressed="true">Medium</button>
+                    <button class="task-chip" type="button" data-priority="high" aria-pressed="false">High</button>
+                </div>
+                <button id="addTaskBtn" class="btn btn-primary" type="button">Add</button>
+            </div>
+
+            <!-- Screen-reader-only announcements (state changes only) -->
+            <div id="taskAnnounce" class="visually-hidden" role="status" aria-live="polite"></div>
+
+            <p id="taskCount" class="task-count">0 open · 0 completed</p>
+
+            <ul id="taskList" class="task-list" hidden></ul>
+            <p id="taskEmpty" class="task-empty">No tasks yet — add your first one above to start planning.</p>
+
+            <button id="clearDoneBtn" class="btn btn-ghost task-clear-done" type="button" hidden>Clear completed</button>
+        </section>
 
         <footer class="site-footer">
             <p>Built with vanilla HTML, CSS &amp; JavaScript · FocusFlow</p>
