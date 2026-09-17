@@ -3,7 +3,8 @@
 // All original features preserved: theme toggle, click counter,
 // study timer, session tracking, session history, completion
 // sound. Additive: today's sessions + total focus time stats,
-// productivity dashboard, weekly focus chart, task manager.
+// productivity dashboard, weekly focus chart, task manager,
+// focus achievements (Day 10).
 // ============================================================
 
 // ===== Theme Toggle functionality =====
@@ -348,6 +349,8 @@ function recordCompletedSession(ms) {
     recordFocusForToday(ms);
     updateStreakOnSession();
     renderDashboard();
+    // Additive Day 10: achievements (session count, focus hours, night owl, goal)
+    achvOnSession(ms);
     recordSessionHistory(ms);
     let message = "Time's up! Session " + sessionCount + " complete.";
     if (sessionCount % 5 === 0) {
@@ -976,6 +979,8 @@ function toggleTaskDone(id) {
         if (t.id === id) {
             t.done = !t.done;
             doneText = (t.done ? 'Completed: ' : 'Reopened: ') + t.text;
+            // Additive Day 10: achievements listen for completions only
+            if (t.done) achvOnTaskCompleted();
         }
     });
     if (doneText === null) return; // unknown id: nothing to do
@@ -1096,3 +1101,320 @@ clearDoneBtn.addEventListener('click', clearCompletedTasks);
 // Initialise the task manager from restored state
 syncTaskChips();
 renderTasks();
+
+// ===== Focus Achievements (additive: Day 10) =====
+// A reward layer that reads the app's existing data — sessions, focus time,
+// streaks, tasks, daily goals — and unlocks milestone badges. Unlock-only:
+// achievements are never revoked (Reset Sessions deliberately keeps them,
+// matching the existing precedent of keeping streak.best as a record).
+const ACHV_KEY = 'achievements';          // additive: {unlocked:{id:ts}, counters:{...}, lastGoalDate}
+const achvGridEl = document.getElementById('achvGrid');
+const achvSummaryEl = document.getElementById('achvSummary');
+const achvBarEl = document.getElementById('achvProgressBar');
+const achvBarFillEl = document.getElementById('achvProgressFill');
+const achvToastStackEl = document.getElementById('achvToastStack');
+
+function achvDef(id, icon, name, requirement, evaluate, progress) {
+    return { id: id, icon: icon, name: name, requirement: requirement, evaluate: evaluate, progress: progress };
+}
+
+// 12 definitions. evaluate() returns true when the badge is earned;
+// progress() returns {current, goal} for the locked-card progress bar.
+const ACHIEVEMENTS = [
+    achvDef('firstFocus', '🌱', 'First Focus', 'Complete 1 study session',
+        function () { return achvCountSessions() >= 1; },
+        function () { return { current: achvCountSessions(), goal: 1, unit: 'sessions' }; }),
+    achvDef('doubleDigits', '🔟', 'Double Digits', 'Complete 10 study sessions',
+        function () { return achvCountSessions() >= 10; },
+        function () { return { current: achvCountSessions(), goal: 10, unit: 'sessions' }; }),
+    achvDef('fiftyClub', '🏅', 'Fifty Club', 'Complete 50 study sessions',
+        function () { return achvCountSessions() >= 50; },
+        function () { return { current: achvCountSessions(), goal: 50, unit: 'sessions' }; }),
+    achvDef('fiveHours', '⏳', 'Five Hours Deep', 'Focus for 5 hours in total',
+        function () { return achvFocusMs() >= 5 * 3600000; },
+        function () { return { current: achvFocusMs() / 3600000, goal: 5, unit: 'hours' }; }),
+    achvDef('tenHours', '🧠', 'Ten Hour Mind', 'Focus for 10 hours in total',
+        function () { return achvFocusMs() >= 10 * 3600000; },
+        function () { return { current: achvFocusMs() / 3600000, goal: 10, unit: 'hours' }; }),
+    achvDef('streak3', '🔥', 'Heating Up', 'Reach a 3-day study streak',
+        function () { return achvStreakBest() >= 3; },
+        function () { return { current: Math.max(achvStreakBest(), achvStreakNow()), goal: 3, unit: 'days' }; }),
+    achvDef('streak7', '🗓️', 'Week Warrior', 'Reach a 7-day study streak',
+        function () { return achvStreakBest() >= 7; },
+        function () { return { current: Math.max(achvStreakBest(), achvStreakNow()), goal: 7, unit: 'days' }; }),
+    achvDef('firstTaskDone', '✅', 'First Task Done', 'Complete 1 task',
+        function () { return achvState.counters.tasksCompleted >= 1; },
+        function () { return { current: achvState.counters.tasksCompleted, goal: 1, unit: 'tasks' }; }),
+    achvDef('checklistChamp', '📋', 'Checklist Champ', 'Complete 25 tasks',
+        function () { return achvState.counters.tasksCompleted >= 25; },
+        function () { return { current: achvState.counters.tasksCompleted, goal: 25, unit: 'tasks' }; }),
+    achvDef('goalGetter', '🎯', 'Goal Getter', 'Reach your daily goal once',
+        function () { return achvState.counters.goalsReached >= 1; },
+        function () { return { current: achvState.counters.goalsReached, goal: 1, unit: 'times' }; }),
+    achvDef('goalMachine', '🎖️', 'Goal Machine', 'Reach your daily goal 5 times',
+        function () { return achvState.counters.goalsReached >= 5; },
+        function () { return { current: achvState.counters.goalsReached, goal: 5, unit: 'times' }; }),
+    achvDef('nightOwl', '🌙', 'Night Owl', 'Finish a session between 10 PM and 5 AM',
+        function () { return achvState.counters.nightSessions >= 1; },
+        function () { return { current: achvState.counters.nightSessions, goal: 1, unit: 'nights' }; })
+];
+
+let achvState = loadAchvState();
+
+function loadAchvState() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(ACHV_KEY));
+        if (!parsed || typeof parsed !== 'object') return makeAchvState();
+        const unlocked = {};
+        if (parsed.unlocked && typeof parsed.unlocked === 'object' && !Array.isArray(parsed.unlocked)) {
+            // Keep only known ids with sane timestamps
+            ACHIEVEMENTS.forEach(function (def) {
+                const ts = Number(parsed.unlocked[def.id]);
+                if (isFinite(ts) && ts > 0) unlocked[def.id] = ts;
+            });
+        }
+        const c = (parsed.counters && typeof parsed.counters === 'object') ? parsed.counters : {};
+        return {
+            unlocked: unlocked,
+            counters: {
+                tasksCompleted: achvSaneCount(c.tasksCompleted),
+                goalsReached: achvSaneCount(c.goalsReached),
+                nightSessions: achvSaneCount(c.nightSessions)
+            },
+            lastGoalDate: (typeof parsed.lastGoalDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastGoalDate))
+                ? parsed.lastGoalDate : null
+        };
+    } catch (err) {
+        return makeAchvState(); // missing or corrupt data -> start fresh
+    }
+}
+
+function makeAchvState() {
+    return {
+        unlocked: {},
+        counters: { tasksCompleted: 0, goalsReached: 0, nightSessions: 0 },
+        lastGoalDate: null
+    };
+}
+
+function achvSaneCount(value) {
+    const n = Number(value);
+    return (isFinite(n) && n > 0) ? Math.floor(n) : 0;
+}
+
+function saveAchvState() {
+    try {
+        localStorage.setItem(ACHV_KEY, JSON.stringify(achvState));
+    } catch (err) {
+        // Storage full or unavailable: keep the in-memory state (badges still show)
+    }
+}
+
+// --- Reads over EXISTING feature data (no new sources of truth) ---
+function achvCountSessions() {
+    const saved = Number(localStorage.getItem(SESSIONS_KEY));
+    return (isFinite(saved) && saved > 0) ? Math.floor(saved) : 0;
+}
+
+function achvFocusMs() {
+    // Matches the stats tile: backfilled estimate while TOTAL_KEY is unset
+    const saved = Number(localStorage.getItem(TOTAL_KEY));
+    if (isFinite(saved) && saved >= 0) return saved;
+    return achvCountSessions() * DEFAULT_DURATION_MS;
+}
+
+function achvStreakBest() {
+    return (streak && isFinite(streak.best)) ? Math.max(0, Math.floor(streak.best)) : 0;
+}
+
+function achvStreakNow() {
+    // Mirrors renderDashboard()'s display logic: yesterday's streak still stands
+    if (!streak || streak.last === null) return 0;
+    const today = todayDateString();
+    if (streak.last === today) return streak.current;
+    const gap = daysBetween(streak.last, today);
+    return (gap === 1) ? streak.current : 0;
+}
+
+// --- Toast queue: several unlocks in one action show one at a time ---
+const achvToastQueue = [];
+let achvToastBusy = false;
+
+function achvQueueToast(def) {
+    achvToastQueue.push(def);
+    if (!achvToastBusy) achvShowNextToast();
+}
+
+function achvShowNextToast() {
+    const def = achvToastQueue.shift();
+    if (!def) {
+        achvToastBusy = false;
+        return;
+    }
+    achvToastBusy = true;
+
+    const toast = document.createElement('div');
+    toast.className = 'achv-toast';
+
+    const icon = document.createElement('span');
+    icon.className = 'achv-toast-icon';
+    icon.textContent = def.icon;
+    icon.setAttribute('aria-hidden', 'true');
+
+    const body = document.createElement('div');
+    const eyebrow = document.createElement('p');
+    eyebrow.className = 'achv-toast-eyebrow';
+    eyebrow.textContent = 'Achievement unlocked';
+    const name = document.createElement('p');
+    name.className = 'achv-toast-name';
+    name.textContent = def.icon + ' ' + def.name;
+    body.appendChild(eyebrow);
+    body.appendChild(name);
+
+    toast.appendChild(icon);
+    toast.appendChild(body);
+    achvToastStackEl.appendChild(toast);
+
+    // Slide in, hold, slide out, then show the next queued toast
+    requestAnimationFrame(function () {
+        requestAnimationFrame(function () { toast.classList.add('show'); });
+    });
+    setTimeout(function () {
+        toast.classList.remove('show');
+        setTimeout(function () {
+            toast.remove();
+            achvShowNextToast();
+        }, 350); // matches the CSS transition duration
+    }, 4000);
+}
+
+// --- Rendering ---
+function renderAchievements() {
+    if (!achvGridEl) return; // markup missing: fail silently, nothing else breaks
+    achvGridEl.innerHTML = ''; // textContent-only nodes below: no injection risk
+
+    ACHIEVEMENTS.forEach(function (def, index) {
+        const unlockedAt = achvState.unlocked[def.id];
+        const card = document.createElement('article');
+        card.className = 'achv-card' + (unlockedAt ? ' is-unlocked' : '');
+        card.style.setProperty('--delay', (index * 0.04) + 's'); // staggered pop-in
+
+        const icon = document.createElement('span');
+        icon.className = 'achv-icon';
+        icon.textContent = unlockedAt ? def.icon : '🔒';
+        icon.setAttribute('aria-hidden', 'true');
+
+        const name = document.createElement('h3');
+        name.className = 'achv-name';
+        name.textContent = def.name;
+
+        const requirement = document.createElement('p');
+        requirement.className = 'achv-requirement';
+        requirement.textContent = def.requirement;
+
+        card.appendChild(icon);
+        card.appendChild(name);
+        card.appendChild(requirement);
+
+        if (unlockedAt) {
+            const date = document.createElement('p');
+            date.className = 'achv-date';
+            date.textContent = 'Unlocked ' + new Date(unlockedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            card.appendChild(date);
+        } else {
+            // Live progress bar for locked badges
+            const prog = def.progress();
+            const ratio = prog.goal > 0 ? Math.min(1, Math.max(0, prog.current / prog.goal)) : 0;
+
+            const track = document.createElement('div');
+            track.className = 'achv-progress-track';
+            track.setAttribute('role', 'progressbar');
+            track.setAttribute('aria-label', def.name + ' progress');
+            track.setAttribute('aria-valuemin', '0');
+            track.setAttribute('aria-valuemax', String(prog.goal));
+            track.setAttribute('aria-valuenow', String(Math.floor(ratio * 100)));
+
+            const bar = document.createElement('div');
+            bar.className = 'achv-progress-bar';
+            bar.style.width = (ratio * 100) + '%';
+            track.appendChild(bar);
+
+            const text = document.createElement('p');
+            text.className = 'achv-progress-text';
+            text.textContent = achvProgressText(prog);
+
+            card.appendChild(track);
+            card.appendChild(text);
+        }
+
+        achvGridEl.appendChild(card);
+    });
+
+    // Summary line + overall progress bar
+    const unlockedCount = Object.keys(achvState.unlocked).length;
+    achvSummaryEl.innerHTML = '';
+    const summaryText = document.createElement('strong');
+    summaryText.textContent = unlockedCount + ' of ' + ACHIEVEMENTS.length + ' unlocked';
+    achvSummaryEl.appendChild(summaryText);
+    achvSummaryEl.appendChild(document.createTextNode(' — keep focusing to earn more badges'));
+
+    const ratio = ACHIEVEMENTS.length > 0 ? unlockedCount / ACHIEVEMENTS.length : 0;
+    achvBarFillEl.style.width = (ratio * 100) + '%';
+    achvBarEl.setAttribute('aria-valuemax', String(ACHIEVEMENTS.length));
+    achvBarEl.setAttribute('aria-valuenow', String(unlockedCount));
+}
+
+function achvProgressText(prog) {
+    if (prog.unit === 'hours') {
+        // Fractional hours: show minutes under 1h, 1-decimal hours above
+        const cur = prog.current < 1 ? Math.round(prog.current * 60) + '/' + (prog.goal * 60) + 'm'
+            : prog.current.toFixed(1) + '/' + prog.goal + 'h';
+        return cur;
+    }
+    const current = Math.min(Math.floor(prog.current), prog.goal);
+    return current + '/' + prog.goal + ' ' + prog.unit;
+}
+
+// --- Unlock evaluation (unlock-only: never revokes) ---
+function achvEvaluate(triggerToast) {
+    let newlyUnlocked = [];
+    ACHIEVEMENTS.forEach(function (def) {
+        if (!achvState.unlocked[def.id] && def.evaluate()) {
+            achvState.unlocked[def.id] = Date.now();
+            newlyUnlocked.push(def);
+        }
+    });
+    if (newlyUnlocked.length > 0) {
+        saveAchvState();
+        renderAchievements();
+        if (triggerToast) newlyUnlocked.forEach(achvQueueToast);
+    }
+    return newlyUnlocked.length;
+}
+
+// --- Event hooks (called from existing flows, after this module is defined) ---
+function achvOnSession(sessionMs) {
+    // Night Owl: session finished between 10 PM (22:00) and 5 AM (04:59)
+    const hour = new Date().getHours();
+    if (hour >= 22 || hour < 5) {
+        achvState.counters.nightSessions += 1;
+    }
+    // Goal badges: did this session push today's focus over the daily goal?
+    const today = todayDateString();
+    if (achvState.lastGoalDate !== today && todayFocusMs() >= dailyGoalMin * 60000) {
+        achvState.counters.goalsReached += 1;
+        achvState.lastGoalDate = today;
+    }
+    saveAchvState();
+    achvEvaluate(true);
+}
+
+function achvOnTaskCompleted() {
+    achvState.counters.tasksCompleted += 1;
+    saveAchvState();
+    achvEvaluate(true);
+}
+
+// Initialise the achievements section from restored state (no toasts on load)
+achvEvaluate(false);
+renderAchievements();

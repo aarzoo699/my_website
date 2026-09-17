@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="FocusFlow — a modern study timer with session tracking, history and a task manager.">
+    <meta name="description" content="FocusFlow — a modern study timer with session tracking, history, a task manager and focus achievements.">
     <meta name="color-scheme" content="light dark">
     <title>FocusFlow — Study Timer &amp; Productivity</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
@@ -48,7 +48,7 @@
 
         <!-- Hero -->
         <section class="hero anim-rise" style="--delay:.02s">
-            <p class="hero-eyebrow">Day 9 · Task manager</p>
+            <p class="hero-eyebrow">Day 10 · Focus achievements</p>
             <h1>Focus deeper with <span class="gradient-text">FocusFlow</span></h1>
             <p class="hero-sub">
                 Pick a duration, start the timer, and let FocusFlow track every completed study session —
@@ -241,6 +241,22 @@
 
             <button id="clearDoneBtn" class="btn btn-ghost task-clear-done" type="button" hidden>Clear completed</button>
         </section>
+
+        <!-- Focus Achievements (Day 10) -->
+        <section class="card achievements-section anim-rise" style="--delay:.38s" aria-labelledby="achievementsHeading">
+            <h2 id="achievementsHeading"><span aria-hidden="true">🏅</span> Focus Achievements</h2>
+
+            <p id="achvSummary" class="achv-summary">0 of 12 unlocked</p>
+            <div id="achvProgressBar" class="achv-progress" role="progressbar" aria-label="Achievements unlocked"
+                aria-valuemin="0" aria-valuemax="12" aria-valuenow="0">
+                <div id="achvProgressFill" class="achv-progress-fill"></div>
+            </div>
+
+            <div id="achvGrid" class="achv-grid"></div>
+        </section>
+
+        <!-- Achievement unlock toasts (bottom-right, queued one at a time) -->
+        <div id="achvToastStack" class="achv-toast-stack" aria-live="polite"></div>
 
         <footer class="site-footer">
             <p>Built with vanilla HTML, CSS &amp; JavaScript · FocusFlow</p>
