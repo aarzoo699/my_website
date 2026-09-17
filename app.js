@@ -4,7 +4,8 @@
 // study timer, session tracking, session history, completion
 // sound. Additive: today's sessions + total focus time stats,
 // productivity dashboard, weekly focus chart, task manager,
-// focus achievements (Day 10).
+// focus achievements (Day 10, +2 flashcard badges Day 11), and
+// flashcard decks with Leitner spaced repetition (Day 11).
 // ============================================================
 
 // ===== Theme Toggle functionality =====
@@ -1156,7 +1157,15 @@ const ACHIEVEMENTS = [
         function () { return { current: achvState.counters.goalsReached, goal: 5, unit: 'times' }; }),
     achvDef('nightOwl', '🌙', 'Night Owl', 'Finish a session between 10 PM and 5 AM',
         function () { return achvState.counters.nightSessions >= 1; },
-        function () { return { current: achvState.counters.nightSessions, goal: 1, unit: 'nights' }; })
+        function () { return { current: achvState.counters.nightSessions, goal: 1, unit: 'nights' }; }),
+    // Additive Day 11: flashcard badges. Unlocked via achvOnFlashcardsReviewed()
+    // and achvOnFlashcardRoundEnd(), called from the flashcards module below.
+    achvDef('cardSharp', '🃏', 'Card Sharp', 'Review 50 flashcards',
+        function () { return achvState.counters.flashcardsReviewed >= 50; },
+        function () { return { current: achvState.counters.flashcardsReviewed, goal: 50, unit: 'cards' }; }),
+    achvDef('perfectRecall', '🎓', 'Perfect Recall', 'Finish a study round with 100% correct (min 5 cards)',
+        function () { return achvState.counters.perfectRounds >= 1; },
+        function () { return { current: achvState.counters.perfectRounds, goal: 1, unit: 'rounds' }; })
 ];
 
 let achvState = loadAchvState();
@@ -1179,7 +1188,9 @@ function loadAchvState() {
             counters: {
                 tasksCompleted: achvSaneCount(c.tasksCompleted),
                 goalsReached: achvSaneCount(c.goalsReached),
-                nightSessions: achvSaneCount(c.nightSessions)
+                nightSessions: achvSaneCount(c.nightSessions),
+                flashcardsReviewed: achvSaneCount(c.flashcardsReviewed),
+                perfectRounds: achvSaneCount(c.perfectRounds)
             },
             lastGoalDate: (typeof parsed.lastGoalDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.lastGoalDate))
                 ? parsed.lastGoalDate : null
@@ -1192,7 +1203,8 @@ function loadAchvState() {
 function makeAchvState() {
     return {
         unlocked: {},
-        counters: { tasksCompleted: 0, goalsReached: 0, nightSessions: 0 },
+        // Additive Day 11: flashcardsReviewed + perfectRounds counters
+        counters: { tasksCompleted: 0, goalsReached: 0, nightSessions: 0, flashcardsReviewed: 0, perfectRounds: 0 },
         lastGoalDate: null
     };
 }
@@ -1415,6 +1427,667 @@ function achvOnTaskCompleted() {
     achvEvaluate(true);
 }
 
+// Additive Day 11: called by the flashcards module once per graded card.
+// Lifetime counter — reopening/unflipping can never decrement it.
+function achvOnFlashcardsReviewed() {
+    achvState.counters.flashcardsReviewed += 1;
+    saveAchvState();
+    achvEvaluate(true);
+}
+
+// Additive Day 11: called at the end of every study round. A round counts as
+// "perfect" (for Perfect Recall) only with 5+ cards and zero misses.
+function achvOnFlashcardRoundEnd(correctCount, roundSize) {
+    if (roundSize >= 5 && correctCount === roundSize) {
+        achvState.counters.perfectRounds += 1;
+        saveAchvState();
+        achvEvaluate(true);
+    }
+}
+
 // Initialise the achievements section from restored state (no toasts on load)
 achvEvaluate(false);
 renderAchievements();
+
+// ===== Flashcard Decks (additive: Day 11) =====
+// Students create decks of front/back cards and study them with the Leitner
+// system: cards answered correctly move up boxes 1-5 (longer review gaps),
+// misses drop back to box 1 (seen again next round). Reads nothing from the
+// other features; writes only its own keys and feeds the two Day 11 badges.
+const DECKS_KEY = 'flashcardDecks';    // additive: [{id, name, cards:[{id, front, back, box, due}]}]
+const FC_STATS_KEY = 'flashcardStats'; // additive: {reviewed, correct} (lifetime)
+const MAX_DECKS = 10;
+const MAX_CARDS_PER_DECK = 100;
+const FC_MAX_TEXT = 240;
+const FC_MAX_NAME = 40;
+// index = Leitner box; days until the card is due again (box 1 = next round)
+const LEITNER_INTERVAL_DAYS = [0, 0, 1, 3, 7, 14];
+const fcDeckInputEl = document.getElementById('fcDeckInput');
+const fcAddDeckBtn = document.getElementById('fcAddDeckBtn');
+const fcDeckListEl = document.getElementById('fcDeckList');
+const fcDeckEmptyEl = document.getElementById('fcDeckEmpty');
+const fcStatsLineEl = document.getElementById('fcStatsLine');
+const fcAnnounceEl = document.getElementById('fcAnnounce');
+const fcDeckViewEl = document.getElementById('fcDeckView');
+const fcStudyViewEl = document.getElementById('fcStudyView');
+const fcBackBtn = document.getElementById('fcBackBtn');
+const fcStudyDeckNameEl = document.getElementById('fcStudyDeckName');
+const fcStudyProgressEl = document.getElementById('fcStudyProgress');
+const fcStudyStageEl = document.getElementById('fcStudyStage');
+const fcAgainBtn = document.getElementById('fcAgainBtn');
+const fcFlipBtn = document.getElementById('fcFlipBtn');
+const fcGotBtn = document.getElementById('fcGotBtn');
+const fcTimerSuggestBtn = document.getElementById('fcTimerSuggest');
+
+let decks = loadDecks();
+let expandedDeckId = null;   // which deck shows its card editor
+let fcConfirmDeleteId = null; // two-step deck delete (click again to confirm)
+let study = null;            // {deckId, queue, index, roundSize, correct, flipped}
+
+function fcMakeId(prefix) {
+    return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function announceFc(text) {
+    // New content in the live region is read out by screen readers
+    fcAnnounceEl.textContent = text;
+}
+
+// --- Storage: decks (defensive load, coerces what it can, drops the rest) ---
+function sanitizeCard(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const front = typeof raw.front === 'string' ? raw.front.trim().slice(0, FC_MAX_TEXT) : '';
+    const back = typeof raw.back === 'string' ? raw.back.trim().slice(0, FC_MAX_TEXT) : '';
+    if (!front || !back) return null;
+    const box = Number(raw.box);
+    const due = Number(raw.due);
+    return {
+        id: (typeof raw.id === 'string' && raw.id.length > 0) ? raw.id : fcMakeId('c'),
+        front: front,
+        back: back,
+        // Recoverable corruption is coerced, not dropped (Day 9 precedence)
+        box: (isFinite(box) && box >= 1 && box <= 5) ? Math.floor(box) : 1,
+        due: (isFinite(due) && due >= 0) ? due : 0
+    };
+}
+
+function loadDecks() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(DECKS_KEY));
+        if (!Array.isArray(parsed)) return [];
+        const clean = [];
+        parsed.forEach(function (raw) {
+            if (!raw || typeof raw !== 'object') return;
+            const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, FC_MAX_NAME) : '';
+            if (!name || !Array.isArray(raw.cards)) return;
+            clean.push({
+                id: (typeof raw.id === 'string' && raw.id.length > 0) ? raw.id : fcMakeId('d'),
+                name: name,
+                cards: raw.cards.map(sanitizeCard).filter(Boolean).slice(0, MAX_CARDS_PER_DECK)
+            });
+        });
+        return clean.slice(0, MAX_DECKS);
+    } catch (err) {
+        return []; // missing or corrupt data -> start fresh
+    }
+}
+
+function saveDecks() {
+    try {
+        localStorage.setItem(DECKS_KEY, JSON.stringify(decks));
+    } catch (err) {
+        // Storage full or unavailable: keep showing the in-memory decks
+    }
+}
+
+function loadFcStats() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(FC_STATS_KEY));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return {
+                reviewed: fcSaneCount(parsed.reviewed),
+                correct: fcSaneCount(parsed.correct)
+            };
+        }
+    } catch (err) { /* corrupt or missing -> start fresh */ }
+    return { reviewed: 0, correct: 0 };
+}
+
+function saveFcStats() {
+    try {
+        localStorage.setItem(FC_STATS_KEY, JSON.stringify(fcStats));
+    } catch (err) { /* keep in-memory values */ }
+}
+
+function fcSaneCount(value) {
+    const n = Number(value);
+    return (isFinite(n) && n > 0) ? Math.floor(n) : 0;
+}
+
+let fcStats = loadFcStats();
+
+// --- Leitner helpers ---
+function isCardDue(card) {
+    return card.due <= Date.now();
+}
+
+function deckDueCount(deck) {
+    return deck.cards.filter(isCardDue).length;
+}
+
+function findDeck(id) {
+    let found = null;
+    decks.forEach(function (d) {
+        if (d.id === id) found = d;
+    });
+    return found;
+}
+
+// --- Deck CRUD ---
+function addDeck() {
+    const name = fcDeckInputEl.value.trim().replace(/\s+/g, ' ').slice(0, FC_MAX_NAME);
+    if (name.length === 0) {
+        announceFc('Please type a deck name before creating');
+        fcDeckInputEl.focus();
+        return;
+    }
+    if (decks.length >= MAX_DECKS) {
+        announceFc('Deck list is full — delete a deck first');
+        return;
+    }
+    const deck = { id: fcMakeId('d'), name: name, cards: [] };
+    decks.push(deck);
+    saveDecks();
+    fcDeckInputEl.value = '';
+    expandedDeckId = deck.id; // open the editor straight away
+    renderDecks();
+    announceFc('Deck created: ' + name + '. Add your first cards below it.');
+    fcDeckInputEl.focus();
+}
+
+function deleteDeck(id) {
+    const index = decks.findIndex(function (d) { return d.id === id; });
+    if (index === -1) return;
+    if (fcConfirmDeleteId !== id) {
+        fcConfirmDeleteId = id; // first click arms the confirm
+        renderDecks();
+        announceFc('Press delete again to confirm removing this deck and all its cards');
+        return;
+    }
+    fcConfirmDeleteId = null;
+    const removed = decks.splice(index, 1)[0];
+    if (expandedDeckId === id) expandedDeckId = null;
+    saveDecks();
+    renderDecks();
+    announceFc('Deck deleted: ' + removed.name);
+}
+
+function addCard(deckId) {
+    const deck = findDeck(deckId);
+    if (!deck) return;
+    const frontEl = document.getElementById('fcFrontInput');
+    const backEl = document.getElementById('fcBackInput');
+    if (!frontEl || !backEl) return;
+    const front = frontEl.value.trim().replace(/\s+/g, ' ').slice(0, FC_MAX_TEXT);
+    const back = backEl.value.trim().replace(/\s+/g, ' ').slice(0, FC_MAX_TEXT);
+    if (front.length === 0 || back.length === 0) {
+        announceFc('Please fill in both the front and the back of the card');
+        return;
+    }
+    if (deck.cards.length >= MAX_CARDS_PER_DECK) {
+        announceFc('This deck is full — delete some cards first');
+        return;
+    }
+    // New cards start in box 1 with due=0, so they appear in the first round
+    deck.cards.push({ id: fcMakeId('c'), front: front, back: back, box: 1, due: 0 });
+    saveDecks();
+    frontEl.value = '';
+    backEl.value = '';
+    renderDecks();
+    announceFc('Card added to ' + deck.name);
+}
+
+function deleteCard(deckId, cardId) {
+    const deck = findDeck(deckId);
+    if (!deck) return;
+    const index = deck.cards.findIndex(function (c) { return c.id === cardId; });
+    if (index === -1) return;
+    deck.cards.splice(index, 1);
+    saveDecks();
+    renderDecks();
+    announceFc('Card deleted');
+}
+
+// --- Rendering: deck list ---
+function renderFcStatsLine() {
+    if (fcStats.reviewed === 0) {
+        fcStatsLineEl.textContent = 'No cards reviewed yet';
+        return;
+    }
+    const percent = Math.round((fcStats.correct / fcStats.reviewed) * 100);
+    fcStatsLineEl.textContent = 'All-time: ' + fcStats.reviewed + ' cards reviewed · ' +
+        percent + '% correct';
+}
+
+function buildCardEditor(deck) {
+    const editor = document.createElement('div');
+    editor.className = 'fc-deck-editor';
+
+    const form = document.createElement('div');
+    form.className = 'fc-add-form';
+
+    const front = document.createElement('input');
+    front.type = 'text';
+    front.id = 'fcFrontInput';
+    front.className = 'task-input';
+    front.maxLength = FC_MAX_TEXT;
+    front.placeholder = 'Front (question)…';
+    front.setAttribute('aria-label', 'Card front for ' + deck.name);
+    front.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addCard(deck.id);
+        }
+    });
+
+    const back = document.createElement('input');
+    back.type = 'text';
+    back.id = 'fcBackInput';
+    back.className = 'task-input';
+    back.maxLength = FC_MAX_TEXT;
+    back.placeholder = 'Back (answer)…';
+    back.setAttribute('aria-label', 'Card back for ' + deck.name);
+    back.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addCard(deck.id);
+        }
+    });
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn btn-primary';
+    addBtn.textContent = 'Add Card';
+    addBtn.addEventListener('click', function () { addCard(deck.id); });
+
+    form.appendChild(front);
+    form.appendChild(back);
+    form.appendChild(addBtn);
+    editor.appendChild(form);
+
+    const list = document.createElement('ul');
+    list.className = 'fc-card-list';
+    deck.cards.forEach(function (card) {
+        const row = document.createElement('li');
+        row.className = 'fc-card-row';
+        row.dataset.id = card.id;
+
+        const f = document.createElement('span');
+        f.className = 'fc-card-front';
+        f.textContent = card.front; // textContent: user input is never parsed as HTML
+
+        const b = document.createElement('span');
+        b.className = 'fc-card-back';
+        b.textContent = card.back;
+
+        const box = document.createElement('span');
+        box.className = 'fc-card-box';
+        box.textContent = 'Box ' + card.box;
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'task-delete';
+        del.textContent = '🗑';
+        del.setAttribute('aria-label', 'Delete card: ' + card.front);
+
+        row.appendChild(f);
+        row.appendChild(b);
+        row.appendChild(box);
+        row.appendChild(del);
+        list.appendChild(row);
+    });
+    editor.appendChild(list);
+    return editor;
+}
+
+function renderDecks() {
+    fcDeckListEl.innerHTML = ''; // textContent-only nodes below: no injection risk
+    renderFcStatsLine();
+
+    if (decks.length === 0) {
+        fcDeckListEl.hidden = true;
+        fcDeckEmptyEl.hidden = false;
+        return;
+    }
+    fcDeckListEl.hidden = false;
+    fcDeckEmptyEl.hidden = true;
+
+    decks.forEach(function (deck, index) {
+        const li = document.createElement('li');
+        li.className = 'fc-deck-row';
+        li.style.setProperty('--delay', (index * 0.05) + 's'); // staggered pop-in
+        li.dataset.id = deck.id;
+
+        const top = document.createElement('div');
+        top.className = 'fc-deck-top';
+
+        const name = document.createElement('span');
+        name.className = 'fc-deck-name';
+        name.textContent = deck.name;
+
+        const meta = document.createElement('span');
+        meta.className = 'fc-deck-meta';
+        meta.textContent = deck.cards.length + (deck.cards.length === 1 ? ' card' : ' cards');
+
+        top.appendChild(name);
+        top.appendChild(meta);
+
+        const dueCount = deckDueCount(deck);
+        if (deck.cards.length > 0 && dueCount > 0) {
+            const badge = document.createElement('span');
+            badge.className = 'fc-due-badge';
+            badge.textContent = dueCount + ' due';
+            top.appendChild(badge);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'fc-deck-actions';
+
+        const studyBtn = document.createElement('button');
+        studyBtn.type = 'button';
+        studyBtn.className = 'btn btn-primary fc-study-btn';
+        studyBtn.textContent = 'Study';
+        studyBtn.disabled = deck.cards.length === 0;
+        studyBtn.setAttribute('aria-label', 'Study deck: ' + deck.name);
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'task-delete';
+        if (fcConfirmDeleteId === deck.id) {
+            delBtn.textContent = '✓';
+            delBtn.classList.add('confirm');
+            delBtn.setAttribute('aria-label', 'Confirm delete deck: ' + deck.name);
+        } else {
+            delBtn.textContent = '🗑';
+            delBtn.setAttribute('aria-label', 'Delete deck: ' + deck.name);
+        }
+
+        actions.appendChild(studyBtn);
+        actions.appendChild(delBtn);
+        top.appendChild(actions);
+        li.appendChild(top);
+
+        // Leitner histogram: one bar per box, height = share of the deck's cards
+        if (deck.cards.length > 0) {
+            const counts = [0, 0, 0, 0, 0];
+            deck.cards.forEach(function (c) { counts[c.box - 1] += 1; });
+            const bars = document.createElement('div');
+            bars.className = 'fc-boxes';
+            const labels = document.createElement('div');
+            labels.className = 'fc-box-labels';
+            counts.forEach(function (count, i) {
+                const bar = document.createElement('div');
+                bar.className = 'fc-box' + (count > 0 ? ' filled' : '');
+                bar.style.height = count > 0
+                    ? Math.max(12, Math.round((count / deck.cards.length) * 100)) + '%'
+                    : '';
+                bar.title = 'Box ' + (i + 1) + ': ' + count + ' cards';
+                bars.appendChild(bar);
+
+                const label = document.createElement('span');
+                label.textContent = count > 0 ? String(count) : '·';
+                label.title = 'Box ' + (i + 1) + ': ' + count + ' cards';
+                labels.appendChild(label);
+            });
+            li.appendChild(bars);
+            li.appendChild(labels);
+        }
+
+        if (expandedDeckId === deck.id) {
+            li.appendChild(buildCardEditor(deck));
+        }
+
+        fcDeckListEl.appendChild(li);
+    });
+}
+
+// Event delegation: deck-level buttons, card deletes, editor toggle.
+// (Rows are re-rendered on each change, so per-row listeners would leak.)
+fcDeckListEl.addEventListener('click', function (e) {
+    const cardRow = e.target.closest('.fc-card-row');
+    if (cardRow) {
+        if (e.target.classList.contains('task-delete')) {
+            const deckRow = cardRow.closest('.fc-deck-row');
+            if (deckRow) deleteCard(deckRow.dataset.id, cardRow.dataset.id);
+        }
+        return;
+    }
+    // Clicks inside an open editor (inputs, its Add button) never toggle the editor
+    if (e.target.closest('.fc-deck-editor')) return;
+    const deckRow = e.target.closest('.fc-deck-row');
+    if (!deckRow) return;
+    if (e.target.classList.contains('fc-study-btn')) {
+        startStudy(deckRow.dataset.id);
+    } else if (e.target.classList.contains('task-delete')) {
+        deleteDeck(deckRow.dataset.id);
+    } else if (e.target.closest('button') === null) {
+        // Clicking the row itself (not a button) expands/collapses the editor
+        expandedDeckId = (expandedDeckId === deckRow.dataset.id) ? null : deckRow.dataset.id;
+        fcConfirmDeleteId = null;
+        renderDecks();
+    }
+});
+
+fcAddDeckBtn.addEventListener('click', addDeck);
+fcDeckInputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        addDeck();
+    }
+});
+
+// --- Study mode: flip, self-grade, Leitner update ---
+function currentStudyCard() {
+    if (!study) return null;
+    const deck = findDeck(study.deckId);
+    if (!deck) return null;
+    let card = null;
+    deck.cards.forEach(function (c) {
+        if (c.id === study.queue[study.index]) card = c;
+    });
+    return card;
+}
+
+function startStudy(deckId) {
+    const deck = findDeck(deckId);
+    if (!deck || deck.cards.length === 0) return;
+    // Due cards first (oldest due first); if none are due, preview the
+    // weakest-box cards so an up-to-date deck still has something to study.
+    let queue = deck.cards.filter(isCardDue);
+    if (queue.length === 0) {
+        queue = deck.cards.slice().sort(function (a, b) {
+            return a.box - b.box || a.due - b.due;
+        }).slice(0, 10);
+    } else {
+        queue = queue.slice().sort(function (a, b) { return a.due - b.due; });
+    }
+    study = {
+        deckId: deckId,
+        queue: queue.map(function (c) { return c.id; }),
+        index: 0,
+        roundSize: queue.length,
+        correct: 0,
+        flipped: false
+    };
+    fcDeckViewEl.hidden = true;
+    fcStudyViewEl.hidden = false;
+    fcTimerSuggestBtn.hidden = true;
+    fcFlipBtn.disabled = false;
+    fcAgainBtn.disabled = true;
+    fcGotBtn.disabled = true;
+    fcStudyDeckNameEl.textContent = deck.name;
+    renderStudyCard();
+    announceFc('Study round started: ' + study.roundSize + ' cards from ' + deck.name);
+}
+
+function renderStudyCard() {
+    fcStudyStageEl.innerHTML = '';
+    const card = currentStudyCard();
+    if (!card) {
+        endStudyRound();
+        return;
+    }
+    study.flipped = false;
+    fcStudyProgressEl.textContent = 'Card ' + (study.index + 1) + ' of ' + study.roundSize;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'fc-flip-card';
+    wrap.id = 'fcFlipCard';
+    wrap.setAttribute('role', 'button');
+    wrap.setAttribute('tabindex', '0');
+    wrap.setAttribute('aria-label', 'Flashcard front. Activate to show the answer.');
+    wrap.addEventListener('click', flipStudyCard);
+    wrap.addEventListener('keydown', function (e) {
+        if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            flipStudyCard();
+        }
+    });
+
+    const inner = document.createElement('div');
+    inner.className = 'fc-flip-inner';
+
+    const front = document.createElement('div');
+    front.className = 'fc-face fc-face-front';
+    front.textContent = card.front;
+
+    const back = document.createElement('div');
+    back.className = 'fc-face fc-face-back';
+    back.textContent = card.back;
+
+    inner.appendChild(front);
+    inner.appendChild(back);
+    wrap.appendChild(inner);
+    fcStudyStageEl.appendChild(wrap);
+    syncStudyControls();
+}
+
+function flipStudyCard() {
+    if (!study) return;
+    const wrap = document.getElementById('fcFlipCard');
+    if (!wrap) return;
+    study.flipped = !study.flipped;
+    wrap.classList.toggle('is-flipped', study.flipped);
+    wrap.setAttribute('aria-label', study.flipped
+        ? 'Flashcard answer. Activate to show the question.'
+        : 'Flashcard front. Activate to show the answer.');
+    syncStudyControls();
+    announceFc(study.flipped ? 'Answer side shown' : 'Question side shown');
+}
+
+function syncStudyControls() {
+    // Grade buttons only make sense after the card has been flipped
+    fcAgainBtn.disabled = !study || !study.flipped;
+    fcGotBtn.disabled = !study || !study.flipped;
+    fcFlipBtn.textContent = (study && study.flipped) ? 'Show Question' : 'Show Answer';
+}
+
+function gradeStudyCard(gotIt) {
+    if (!study) return;
+    if (!study.flipped) {
+        announceFc('Flip the card first, then grade yourself');
+        return;
+    }
+    const card = currentStudyCard();
+    if (!card) return;
+    // Leitner: correct moves up a box (max 5), a miss drops back to box 1.
+    if (gotIt) {
+        card.box = Math.min(5, card.box + 1);
+    } else {
+        card.box = 1;
+    }
+    card.due = Date.now() + LEITNER_INTERVAL_DAYS[card.box] * 86400000;
+    fcStats.reviewed += 1;
+    if (gotIt) {
+        fcStats.correct += 1;
+        study.correct += 1;
+    }
+    saveDecks();
+    saveFcStats();
+    renderFcStatsLine();
+    achvOnFlashcardsReviewed(); // feeds the Card Sharp badge
+    study.index += 1;
+    if (study.index >= study.queue.length) {
+        endStudyRound();
+    } else {
+        renderStudyCard();
+        announceFc(gotIt ? 'Got it — next card' : 'Again — next card');
+    }
+}
+
+function endStudyRound() {
+    const total = study ? study.roundSize : 0;
+    const correct = study ? study.correct : 0;
+    const percent = total > 0 ? Math.round((correct / total) * 100) : 0;
+    achvOnFlashcardRoundEnd(correct, total); // feeds the Perfect Recall badge
+
+    fcStudyStageEl.innerHTML = '';
+    const big = document.createElement('p');
+    big.className = 'fc-summary-big';
+    big.textContent = percent + '% correct';
+    const line = document.createElement('p');
+    line.className = 'fc-summary-line';
+    line.textContent = correct + ' of ' + total + ' cards right · weak cards return sooner';
+    fcStudyStageEl.appendChild(big);
+    fcStudyStageEl.appendChild(line);
+
+    fcStudyProgressEl.textContent = 'Round complete';
+    fcFlipBtn.disabled = true;
+    fcAgainBtn.disabled = true;
+    fcGotBtn.disabled = true;
+
+    // Natural tie-in to the existing timer: offer a follow-up focus block
+    fcTimerSuggestBtn.hidden = false;
+    fcTimerSuggestBtn.textContent = '⏱️ Start a 10 min focus session';
+
+    announceFc('Round complete: ' + correct + ' of ' + total + ' correct');
+    study = null;
+}
+
+function exitStudy() {
+    study = null;
+    fcStudyViewEl.hidden = true;
+    fcDeckViewEl.hidden = false;
+    fcTimerSuggestBtn.hidden = true;
+    fcFlipBtn.disabled = false;
+    renderDecks(); // refresh due badges + box histograms after the round
+    announceFc('Back to decks');
+}
+
+fcBackBtn.addEventListener('click', exitStudy);
+fcFlipBtn.addEventListener('click', flipStudyCard);
+fcAgainBtn.addEventListener('click', function () { gradeStudyCard(false); });
+fcGotBtn.addEventListener('click', function () { gradeStudyCard(true); });
+fcTimerSuggestBtn.addEventListener('click', function () {
+    // Reuses the existing Study Timer unchanged: load 10 minutes; the user
+    // presses Start as usual (same flow as the preset buttons).
+    loadDuration(10 * 60 * 1000);
+    announceFc('Timer set to 10:00 — press Start');
+});
+
+// Escape exits study mode or collapses the open editor
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (study) {
+        exitStudy();
+        return;
+    }
+    if (expandedDeckId !== null || fcConfirmDeleteId !== null) {
+        expandedDeckId = null;
+        fcConfirmDeleteId = null;
+        renderDecks();
+    }
+});
+
+// Initialise the flashcards section from restored state
+renderDecks();

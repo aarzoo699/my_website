@@ -1737,3 +1737,334 @@ button {
         right: 20px;
     }
 }
+
+/* ---------- Flashcard Decks (additive: Day 11) ---------- */
+.flashcards-section {
+    margin-top: 24px;
+}
+
+.fc-sub {
+    margin-top: 8px;
+    max-width: 640px;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+}
+
+.fc-deck-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.fc-deck-row {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    animation: pop-in 0.35s ease both;
+    animation-delay: var(--delay, 0s);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.fc-deck-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.fc-deck-name {
+    font-weight: 700;
+    color: var(--text-strong);
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+}
+
+.fc-deck-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.fc-due-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 2px 10px;
+    background: var(--accent-soft);
+    color: var(--accent);
+}
+
+.fc-deck-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.fc-due-badge:last-child {
+    margin-left: auto;
+}
+
+.fc-deck-actions .task-delete {
+    margin-left: 0;
+}
+
+.fc-boxes {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 26px;
+    margin-top: 10px;
+}
+
+.fc-box {
+    flex: 1;
+    background: var(--surface-3);
+    border-radius: 4px 4px 0 0;
+    min-height: 4px;
+}
+
+.fc-box.filled {
+    background: var(--grad);
+}
+
+.fc-box-labels {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 0.68rem;
+    color: var(--text-muted);
+}
+
+.fc-box-labels span {
+    flex: 1;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.fc-deck-editor {
+    margin-top: 12px;
+    border-top: 1px dashed var(--border-strong);
+    padding-top: 12px;
+    animation: pop-in 0.35s ease both;
+}
+
+.fc-add-form {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.fc-add-form .task-input {
+    flex: 1 1 160px;
+    min-width: 140px;
+}
+
+.fc-card-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.fc-card-list:empty {
+    display: none;
+}
+
+.fc-card-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 0.85rem;
+}
+
+.fc-card-front {
+    color: var(--text-strong);
+    font-weight: 600;
+    flex: 1 1 40%;
+    overflow-wrap: anywhere;
+}
+
+.fc-card-back {
+    color: var(--text);
+    flex: 1 1 40%;
+    overflow-wrap: anywhere;
+}
+
+.fc-card-box {
+    flex: 0 0 auto;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    background: var(--surface-3);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-variant-numeric: tabular-nums;
+}
+
+.fc-study-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.fc-study-deck-name {
+    font-weight: 700;
+    color: var(--text-strong);
+}
+
+.fc-study-progress {
+    margin-left: auto;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.fc-study-stage {
+    margin-top: 16px;
+}
+
+.fc-flip-card {
+    width: 100%;
+    min-height: 200px;
+    cursor: pointer;
+}
+
+.fc-flip-inner {
+    position: relative;
+    width: 100%;
+    min-height: 200px;
+    transform-style: preserve-3d;
+    transition: transform 0.55s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.fc-flip-card.is-flipped .fc-flip-inner {
+    transform: rotateY(180deg);
+}
+
+.fc-face {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    border-radius: var(--radius-md);
+    text-align: center;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+
+.fc-face-front {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-strong);
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.fc-face-back {
+    background: var(--grad);
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1.4;
+    transform: rotateY(180deg);
+    overflow-wrap: anywhere;
+}
+
+.fc-face-hint {
+    position: absolute;
+    bottom: 10px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.72rem;
+    opacity: 0.7;
+}
+
+.fc-flip-card:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 4px;
+}
+
+.fc-study-controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.fc-study-controls .btn {
+    flex: 1;
+}
+
+.fc-again:not(:disabled):hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.fc-got:not(:disabled) {
+    border-color: var(--success);
+    color: var(--success);
+}
+
+.fc-timer-suggest {
+    margin-top: 12px;
+    width: 100%;
+}
+
+.fc-summary-big {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+}
+
+.fc-summary-line {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-top: 4px;
+}
+
+@media (max-width: 460px) {
+    .fc-study-controls {
+        flex-direction: column;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fc-flip-inner {
+        transition: none;
+        transform-style: flat;
+    }
+
+    .fc-face {
+        position: static;
+        backface-visibility: visible;
+        -webkit-backface-visibility: visible;
+    }
+
+    .fc-face-back {
+        display: none;
+    }
+
+    .fc-flip-card.is-flipped .fc-face-front {
+        display: none;
+    }
+
+    .fc-flip-card.is-flipped .fc-face-back {
+        display: grid;
+    }
+}

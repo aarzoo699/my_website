@@ -117,8 +117,8 @@ console.log('\n— Load with fresh storage —');
     sandbox.Date = makeFakeDateClass('2026-09-17T14:00:00'); // 2 PM: not night
     loadApp(sandbox);
     check('app evaluates without throwing', true);
-    check('12 achievement cards rendered', getEl('achvGrid').children.length === 12);
-    check('summary says 0 of 12', getEl('achvSummary').children[0].textContent === '0 of 12 unlocked');
+    check('14 achievement cards rendered', getEl('achvGrid').children.length === 14);
+    check('summary says 0 of 14', getEl('achvSummary').children[0].textContent === '0 of 14 unlocked');
     check('no achievements key written on load', sandbox.localStorage.getItem('achievements') === null);
 }
 
@@ -277,7 +277,7 @@ console.log('\n— Persistence: reload does not re-toast —');
     loadApp(second.sandbox);
     // getEl is lazy — materialise the stack, then confirm nothing was appended to it
     const toastStack = second.getEl('achvToastStack');
-    check('reload renders 1 of 12 with no toast', (toastStack.children || []).length === 0);
+    check('reload renders 1 of 14 with no toast', (toastStack.children || []).length === 0);
     check('reload keeps the unlock', Object.keys(JSON.parse(first.storage.getItem('achievements')).unlocked).length === 1);
 }
 
