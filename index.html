@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="FocusFlow — a modern study timer with session tracking, history, a task manager, focus achievements and flashcard decks.">
+    <meta name="description" content="FocusFlow — a modern study timer with session tracking, history, a task manager, focus achievements, flashcard decks, a course gradebook and an exam countdown.">
     <meta name="color-scheme" content="light dark">
     <title>FocusFlow — Study Timer &amp; Productivity</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>">
@@ -48,7 +48,7 @@
 
         <!-- Hero -->
         <section class="hero anim-rise" style="--delay:.02s">
-            <p class="hero-eyebrow">Day 11 · Flashcard decks</p>
+            <p class="hero-eyebrow">Day 13 · Exam countdown</p>
             <h1>Focus deeper with <span class="gradient-text">FocusFlow</span></h1>
             <p class="hero-sub">
                 Pick a duration, start the timer, and let FocusFlow track every completed study session —
@@ -294,6 +294,57 @@
 
                 <button id="fcTimerSuggest" class="btn btn-ghost fc-timer-suggest" type="button" hidden></button>
             </div>
+        </section>
+
+        <!-- Course Gradebook (Day 12) -->
+        <section class="card gradebook-section anim-rise" style="--delay:.44s" aria-labelledby="gradebookHeading">
+            <h2 id="gradebookHeading"><span aria-hidden="true">🎓</span> Course Gradebook</h2>
+
+            <p class="fc-sub">Track weighted grades for each course and see exactly what you need on the
+                remaining work to hit your target grade — no more final-exam guesswork.</p>
+
+            <div class="task-form">
+                <input id="gbCourseInput" class="task-input" type="text" maxlength="40"
+                    placeholder="New course name… (e.g. Biology 101)" aria-label="New course name">
+                <div class="task-chips" role="group" aria-label="Target grade for new courses">
+                    <button class="task-chip gb-target-chip" type="button" data-target="70" aria-pressed="false">70%</button>
+                    <button class="task-chip gb-target-chip" type="button" data-target="80" aria-pressed="true">80%</button>
+                    <button class="task-chip gb-target-chip" type="button" data-target="90" aria-pressed="false">90%</button>
+                </div>
+                <button id="gbAddCourseBtn" class="btn btn-primary" type="button">Add Course</button>
+            </div>
+
+            <p id="gbOverallLine" class="task-count">Add a course to start tracking your grades</p>
+
+            <ul id="gbCourseList" class="gb-course-list" hidden></ul>
+            <p id="gbCourseEmpty" class="task-empty">No courses yet — add your first course above and enter its assessments.</p>
+
+            <div id="gbAnnounce" class="visually-hidden" role="status" aria-live="polite"></div>
+        </section>
+
+        <!-- Exam Countdown (Day 13) -->
+        <section class="card exams-section anim-rise" style="--delay:.47s" aria-labelledby="examsHeading">
+            <h2 id="examsHeading"><span aria-hidden="true">📅</span> Exam Countdown</h2>
+
+            <p class="fc-sub">Keep every exam and deadline on one radar. Link them to your gradebook
+                courses to see your current standing right next to the days you have left.</p>
+
+            <div class="task-form">
+                <input id="examNameInput" class="task-input" type="text" maxlength="60"
+                    placeholder="Exam or deadline… (e.g. Biology final)" aria-label="Exam name">
+                <select id="examCourseSelect" class="task-input exam-course-select"
+                    aria-label="Link to a course (optional)">
+                    <option value="">No course link</option>
+                </select>
+                <input id="examDateInput" class="task-input exam-date-input" type="date"
+                    aria-label="Exam date">
+                <button id="addExamBtn" class="btn btn-primary" type="button">Add Exam</button>
+            </div>
+
+            <ul id="examList" class="exam-list" hidden></ul>
+            <p id="examEmpty" class="task-empty">No exams yet — add your first one above and the countdown starts.</p>
+
+            <div id="examAnnounce" class="visually-hidden" role="status" aria-live="polite"></div>
         </section>
 
         <!-- Achievement unlock toasts (bottom-right, queued one at a time) -->

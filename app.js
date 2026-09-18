@@ -4,8 +4,10 @@
 // study timer, session tracking, session history, completion
 // sound. Additive: today's sessions + total focus time stats,
 // productivity dashboard, weekly focus chart, task manager,
-// focus achievements (Day 10, +2 flashcard badges Day 11), and
-// flashcard decks with Leitner spaced repetition (Day 11).
+// focus achievements (Day 10, +2 flashcard badges Day 11),
+// flashcard decks with Leitner spaced repetition (Day 11),
+// a course gradebook with a target-grade solver (Day 12), and
+// an exam countdown linked to gradebook courses (Day 13).
 // ============================================================
 
 // ===== Theme Toggle functionality =====
@@ -2091,3 +2093,824 @@ document.addEventListener('keydown', function (e) {
 
 // Initialise the flashcards section from restored state
 renderDecks();
+
+// ===== Course Gradebook (additive: Day 12) =====
+// Students track courses made of weighted assessments and see their current
+// weighted grade plus the average needed on the remaining work to hit a
+// target. Reads nothing from the other features; writes only its own key and
+// leaves achievements, streaks, decks and tasks untouched.
+const COURSES_KEY = 'courses';   // additive: [{id, name, target, assessments:[{id, name, weight, score}]}]
+const MAX_COURSES = 10;
+const MAX_ASSESSMENTS_PER_COURSE = 15;
+const GB_MAX_NAME = 40;
+const GB_MIN_WEIGHT = 1;
+const GB_MAX_WEIGHT = 100;
+const GB_MIN_SCORE = 0;
+const GB_MAX_SCORE = 100;
+
+const gbCourseInputEl = document.getElementById('gbCourseInput');
+const gbAddCourseBtn = document.getElementById('gbAddCourseBtn');
+const gbTargetChips = document.querySelectorAll('.gb-target-chip');
+const gbOverallLineEl = document.getElementById('gbOverallLine');
+const gbCourseListEl = document.getElementById('gbCourseList');
+const gbCourseEmptyEl = document.getElementById('gbCourseEmpty');
+const gbAnnounceEl = document.getElementById('gbAnnounce');
+
+let courses = loadCourses();
+let expandedCourseId = null;   // which course shows its assessment editor
+let gbConfirmDeleteId = null;  // two-step course delete (click again to confirm)
+let gbSelectedTarget = 80;     // target grade applied to newly created courses
+
+function gbMakeId(prefix) {
+    return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function announceGb(text) {
+    // New content in the live region is read out by screen readers
+    gbAnnounceEl.textContent = text;
+}
+
+// --- Storage: courses (defensive load, coerces what it can, drops the rest) ---
+function gbSaneScore(value) {
+    const n = Number(value);
+    return (isFinite(n) && n >= GB_MIN_SCORE && n <= GB_MAX_SCORE) ? n : null;
+}
+
+function gbSanitizeAssessment(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const name = typeof raw.name === 'string' ? raw.name.trim().replace(/\s+/g, ' ').slice(0, GB_MAX_NAME) : '';
+    const weight = Number(raw.weight);
+    if (!name) return null;
+    return {
+        id: (typeof raw.id === 'string' && raw.id.length > 0) ? raw.id : gbMakeId('a'),
+        name: name,
+        // Recoverable corruption is coerced, not dropped (Day 9 precedence)
+        weight: (isFinite(weight) && weight >= GB_MIN_WEIGHT && weight <= GB_MAX_WEIGHT) ? Math.round(weight) : null,
+        score: gbSaneScore(raw.score) // null = not graded yet
+    };
+}
+
+function loadCourses() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(COURSES_KEY));
+        if (!Array.isArray(parsed)) return [];
+        const clean = [];
+        parsed.forEach(function (raw) {
+            if (!raw || typeof raw !== 'object') return;
+            const name = typeof raw.name === 'string' ? raw.name.trim().replace(/\s+/g, ' ').slice(0, GB_MAX_NAME) : '';
+            const target = Number(raw.target);
+            if (!name || !Array.isArray(raw.assessments)) return;
+            clean.push({
+                id: (typeof raw.id === 'string' && raw.id.length > 0) ? raw.id : gbMakeId('c'),
+                name: name,
+                target: (isFinite(target) && target >= GB_MIN_SCORE && target <= GB_MAX_SCORE) ? target : 80,
+                assessments: raw.assessments.map(gbSanitizeAssessment).filter(Boolean).slice(0, MAX_ASSESSMENTS_PER_COURSE)
+            });
+        });
+        return clean.slice(0, MAX_COURSES);
+    } catch (err) {
+        return []; // missing or corrupt data -> start fresh
+    }
+}
+
+function saveCourses() {
+    try {
+        localStorage.setItem(COURSES_KEY, JSON.stringify(courses));
+    } catch (err) {
+        // Storage full or unavailable: keep showing the in-memory courses
+    }
+}
+
+// --- Grade math (pure helpers so tests can call them directly) ---
+// current: weighted mean over GRADED assessments only
+// need:    target minus graded contribution, spread over the remaining weight
+function gbCompute(course) {
+    let gradedWeight = 0;
+    let gradedContribution = 0;
+    let totalWeight = 0;
+    course.assessments.forEach(function (a) {
+        const w = Number(a.weight);
+        if (!isFinite(w) || w <= 0) return;
+        totalWeight += w;
+        if (a.score === null || a.score === undefined || !isFinite(Number(a.score))) return;
+        gradedWeight += w;
+        gradedContribution += Number(a.score) * w;
+    });
+
+    const current = gradedWeight > 0 ? gradedContribution / gradedWeight : null;
+    const remainingWeight = totalWeight - gradedWeight;
+    let need = null;
+    if (remainingWeight > 0) {
+        // Solve (gradedContribution + need * remainingWeight) / totalWeight = target.
+        // gradedContribution is in score% x weight% units, so the target must be
+        // scaled by totalWeight here (need is a plain percent 0-100).
+        need = (course.target * totalWeight - gradedContribution) / remainingWeight;
+    }
+    // Best achievable final grade if every remaining assessment scores 100
+    const bestPossible = totalWeight > 0
+        ? (gradedContribution + remainingWeight * 100) / totalWeight
+        : null;
+    return {
+        current: current,             // percent or null when nothing is graded
+        gradedWeight: gradedWeight,   // weight already graded
+        gradedContribution: gradedContribution, // sum of score x weight
+        remainingWeight: remainingWeight,
+        totalWeight: totalWeight,
+        need: need,                   // percent needed on remaining work, or null
+        bestPossible: bestPossible
+    };
+}
+
+function gbGradeBand(percent) {
+    if (percent === null || percent === undefined || !isFinite(Number(percent))) return 'none';
+    const p = Number(percent);
+    if (p >= 80) return 'good';
+    if (p >= 60) return 'mid';
+    return 'low';
+}
+
+function gbRound1(value) {
+    return Math.round(value * 10) / 10;
+}
+
+// --- CRUD ---
+function addCourse() {
+    const name = gbCourseInputEl.value.trim().replace(/\s+/g, ' ').slice(0, GB_MAX_NAME);
+    if (name.length === 0) {
+        announceGb('Please type a course name before adding');
+        gbCourseInputEl.focus();
+        return;
+    }
+    if (courses.length >= MAX_COURSES) {
+        announceGb('Course list is full — delete a course first');
+        return;
+    }
+    courses.push({ id: gbMakeId('c'), name: name, target: gbSelectedTarget, assessments: [] });
+    saveCourses();
+    gbCourseInputEl.value = '';
+    expandedCourseId = courses[courses.length - 1].id; // open the editor straight away
+    renderGradebook();
+    // Additive Day 13: keep the exam form's course dropdown in sync (hoisted
+    // function from the exams module below; guarded so the gradebook works alone)
+    if (typeof refreshExamCourseOptions === 'function') refreshExamCourseOptions();
+    announceGb('Course added: ' + name + '. Add its assessments below it.');
+    gbCourseInputEl.focus();
+}
+
+function deleteCourse(id) {
+    const index = courses.findIndex(function (c) { return c.id === id; });
+    if (index === -1) return;
+    if (gbConfirmDeleteId !== id) {
+        gbConfirmDeleteId = id; // first click arms the confirm
+        renderGradebook();
+        announceGb('Press delete again to confirm removing this course and all its assessments');
+        return;
+    }
+    gbConfirmDeleteId = null;
+    const removed = courses.splice(index, 1)[0];
+    if (expandedCourseId === id) expandedCourseId = null;
+    saveCourses();
+    renderGradebook();
+    // Additive Day 13: drop the deleted course from the exam dropdown (the
+    // exams loader also nulls dangling courseIds on the next page load)
+    if (typeof refreshExamCourseOptions === 'function') refreshExamCourseOptions();
+    announceGb('Course deleted: ' + removed.name);
+}
+
+function addAssessment(courseId) {
+    const course = courses.find(function (c) { return c.id === courseId; });
+    if (!course) return;
+    const nameEl = document.getElementById('gbAssessName');
+    const weightEl = document.getElementById('gbAssessWeight');
+    const scoreEl = document.getElementById('gbAssessScore');
+    if (!nameEl || !weightEl || !scoreEl) return;
+    const name = nameEl.value.trim().replace(/\s+/g, ' ').slice(0, GB_MAX_NAME);
+    const weight = Math.round(Number(weightEl.value));
+    const scoreRaw = scoreEl.value.trim();
+    if (name.length === 0) {
+        announceGb('Please give the assessment a name');
+        return;
+    }
+    if (!isFinite(Number(weightEl.value)) || weight < GB_MIN_WEIGHT || weight > GB_MAX_WEIGHT) {
+        announceGb('Weight must be between 1 and 100 percent');
+        return;
+    }
+    // Score is optional: leave it blank for "not graded yet"
+    let score = null;
+    if (scoreRaw !== '') {
+        const s = Number(scoreRaw);
+        if (!isFinite(s) || s < GB_MIN_SCORE || s > GB_MAX_SCORE) {
+            announceGb('Score must be between 0 and 100, or blank if not graded yet');
+            return;
+        }
+        score = s;
+    }
+    if (course.assessments.length >= MAX_ASSESSMENTS_PER_COURSE) {
+        announceGb('This course is full — delete some assessments first');
+        return;
+    }
+    course.assessments.push({ id: gbMakeId('a'), name: name, weight: weight, score: score });
+    saveCourses();
+    nameEl.value = '';
+    weightEl.value = '';
+    scoreEl.value = '';
+    renderGradebook();
+    announceGb('Assessment added to ' + course.name + ': ' + name);
+}
+
+function deleteAssessment(courseId, assessmentId) {
+    const course = courses.find(function (c) { return c.id === courseId; });
+    if (!course) return;
+    const index = course.assessments.findIndex(function (a) { return a.id === assessmentId; });
+    if (index === -1) return;
+    course.assessments.splice(index, 1);
+    saveCourses();
+    renderGradebook();
+    announceGb('Assessment deleted');
+}
+
+// --- Rendering ---
+function gbTargetText(course, calc) {
+    if (calc.remainingWeight <= 0) {
+        // Everything is graded: target is met or it is not
+        return calc.current !== null && calc.current >= course.target
+            ? '🎉 Target met — course complete'
+            : 'Course complete — target missed';
+    }
+    if (calc.need === null) return '';
+    if (calc.need <= 0) {
+        return '🎉 Target secured — any result on the rest keeps it';
+    }
+    if (calc.need > 100) {
+        return 'Out of reach — even 100% on the rest gives about ' +
+            gbRound1(calc.bestPossible) + '%';
+    }
+    return 'Need about ' + gbRound1(calc.need) + '% on the remaining ' +
+        Math.round(calc.remainingWeight) + '% of work';
+}
+
+function buildCourseEditor(course) {
+    const editor = document.createElement('div');
+    editor.className = 'gb-course-editor';
+
+    const form = document.createElement('div');
+    form.className = 'fc-add-form';
+
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.id = 'gbAssessName';
+    name.className = 'task-input';
+    name.maxLength = GB_MAX_NAME;
+    name.placeholder = 'Assessment… (e.g. Midterm)';
+    name.setAttribute('aria-label', 'Assessment name for ' + course.name);
+    name.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addAssessment(course.id);
+        }
+    });
+
+    const weight = document.createElement('input');
+    weight.type = 'number';
+    weight.id = 'gbAssessWeight';
+    weight.className = 'gb-weight-input';
+    weight.min = String(GB_MIN_WEIGHT);
+    weight.max = String(GB_MAX_WEIGHT);
+    weight.step = '1';
+    weight.inputMode = 'numeric';
+    weight.placeholder = 'Weight %';
+    weight.setAttribute('aria-label', 'Weight in percent for ' + course.name);
+    weight.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addAssessment(course.id);
+        }
+    });
+
+    const score = document.createElement('input');
+    score.type = 'number';
+    score.id = 'gbAssessScore';
+    score.className = 'gb-weight-input';
+    score.min = String(GB_MIN_SCORE);
+    score.max = String(GB_MAX_SCORE);
+    score.step = '0.5';
+    score.inputMode = 'decimal';
+    score.placeholder = 'Score % (optional)';
+    score.setAttribute('aria-label', 'Score in percent for ' + course.name);
+    score.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addAssessment(course.id);
+        }
+    });
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn btn-primary';
+    addBtn.textContent = 'Add Assessment';
+    addBtn.addEventListener('click', function () { addAssessment(course.id); });
+
+    form.appendChild(name);
+    form.appendChild(weight);
+    form.appendChild(score);
+    form.appendChild(addBtn);
+    editor.appendChild(form);
+
+    const list = document.createElement('ul');
+    list.className = 'gb-assess-list';
+    course.assessments.forEach(function (a) {
+        const row = document.createElement('li');
+        row.className = 'gb-assess-row';
+        row.dataset.id = a.id;
+
+        const n = document.createElement('span');
+        n.className = 'gb-assess-name';
+        n.textContent = a.name; // textContent: user input is never parsed as HTML
+
+        const w = document.createElement('span');
+        w.className = 'gb-assess-weight';
+        w.textContent = Math.round(a.weight) + '%';
+
+        const s = document.createElement('span');
+        s.className = 'gb-assess-score' + (a.score === null ? ' pending' : '');
+        s.textContent = a.score === null ? 'Not graded' : Math.round(a.score) + '%';
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'task-delete';
+        del.textContent = '🗑';
+        del.setAttribute('aria-label', 'Delete assessment: ' + a.name);
+
+        row.appendChild(n);
+        row.appendChild(w);
+        row.appendChild(s);
+        row.appendChild(del);
+        list.appendChild(row);
+    });
+    editor.appendChild(list);
+    return editor;
+}
+
+function renderGradebook() {
+    gbCourseListEl.innerHTML = ''; // textContent-only nodes below: no injection risk
+
+    if (courses.length === 0) {
+        gbCourseListEl.hidden = true;
+        gbCourseEmptyEl.hidden = false;
+        gbOverallLineEl.textContent = 'Add a course to start tracking your grades';
+        return;
+    }
+    gbCourseListEl.hidden = false;
+    gbCourseEmptyEl.hidden = true;
+
+    let gradedCourseCount = 0;
+    let currentSum = 0;
+
+    courses.forEach(function (course, index) {
+        const calc = gbCompute(course);
+        const li = document.createElement('li');
+        li.className = 'gb-course-row';
+        li.style.setProperty('--delay', (index * 0.05) + 's'); // staggered pop-in
+        li.dataset.id = course.id;
+
+        const top = document.createElement('div');
+        top.className = 'gb-course-top';
+
+        const name = document.createElement('span');
+        name.className = 'gb-course-name';
+        name.textContent = course.name;
+
+        const meta = document.createElement('span');
+        const gradedCount = course.assessments.filter(function (a) { return a.score !== null; }).length;
+        meta.className = 'gb-course-meta';
+        meta.textContent = gradedCount + ' of ' + course.assessments.length + ' graded';
+
+        top.appendChild(name);
+        top.appendChild(meta);
+
+        if (calc.current !== null) {
+            const badge = document.createElement('span');
+            const band = gbGradeBand(calc.current);
+            badge.className = 'gb-grade-badge band-' + band;
+            badge.textContent = gbRound1(calc.current) + '%';
+            badge.title = 'Current grade over graded work';
+            top.appendChild(badge);
+            currentSum += calc.current;
+            gradedCourseCount += 1;
+        }
+
+        const target = document.createElement('span');
+        target.className = 'gb-target-chip gb-target-static';
+        target.textContent = 'Target ' + Math.round(course.target) + '%';
+        top.appendChild(target);
+
+        const actions = document.createElement('div');
+        actions.className = 'fc-deck-actions';
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'task-delete';
+        if (gbConfirmDeleteId === course.id) {
+            delBtn.textContent = '✓';
+            delBtn.classList.add('confirm');
+            delBtn.setAttribute('aria-label', 'Confirm delete course: ' + course.name);
+        } else {
+            delBtn.textContent = '🗑';
+            delBtn.setAttribute('aria-label', 'Delete course: ' + course.name);
+        }
+        actions.appendChild(delBtn);
+        top.appendChild(actions);
+        li.appendChild(top);
+
+        // Status line: current standing + what the target requires
+        const status = document.createElement('p');
+        status.className = 'gb-status';
+        const parts = [];
+        if (calc.current !== null) {
+            parts.push('Current ' + gbRound1(calc.current) + '% over ' + Math.round(calc.gradedWeight) + '% of the weight');
+        } else {
+            parts.push('Nothing graded yet');
+        }
+        if (calc.totalWeight > 0 && calc.totalWeight !== 100) {
+            parts.push('⚠️ weights total ' + Math.round(calc.totalWeight) + '%, not 100%');
+        }
+        const targetText = gbTargetText(course, calc);
+        if (targetText) parts.push(targetText);
+        status.textContent = parts.join(' · ');
+        li.appendChild(status);
+
+        if (expandedCourseId === course.id) {
+            li.appendChild(buildCourseEditor(course));
+        }
+
+        gbCourseListEl.appendChild(li);
+    });
+
+    // Overall line across courses with at least one graded assessment
+    if (gradedCourseCount > 0) {
+        const overall = currentSum / gradedCourseCount;
+        const band = gbGradeBand(overall);
+        gbOverallLineEl.innerHTML = '';
+        const strong = document.createElement('strong');
+        strong.textContent = 'Overall ' + gbRound1(overall) + '%';
+        gbOverallLineEl.appendChild(strong);
+        gbOverallLineEl.appendChild(document.createTextNode(
+            ' across ' + gradedCourseCount + (gradedCourseCount === 1 ? ' course' : ' courses') +
+            ' · ' + (courses.length - gradedCourseCount) + ' without grades yet'));
+        gbOverallLineEl.classList.remove('band-good', 'band-mid', 'band-low');
+        gbOverallLineEl.classList.add('gb-overall', 'band-' + band);
+    } else {
+        gbOverallLineEl.classList.remove('gb-overall', 'band-good', 'band-mid', 'band-low');
+        gbOverallLineEl.textContent = 'Grades will appear once you enter scores';
+    }
+}
+
+// Event delegation: course-level buttons, assessment deletes, editor toggle.
+// (Rows are re-rendered on each change, so per-row listeners would leak.)
+gbCourseListEl.addEventListener('click', function (e) {
+    const assessRow = e.target.closest('.gb-assess-row');
+    if (assessRow) {
+        if (e.target.classList.contains('task-delete')) {
+            const courseRow = assessRow.closest('.gb-course-row');
+            if (courseRow) deleteAssessment(courseRow.dataset.id, assessRow.dataset.id);
+        }
+        return;
+    }
+    // Clicks inside an open editor (inputs, its Add button) never toggle the editor
+    if (e.target.closest('.gb-course-editor')) return;
+    const courseRow = e.target.closest('.gb-course-row');
+    if (!courseRow) return;
+    if (e.target.classList.contains('task-delete')) {
+        deleteCourse(courseRow.dataset.id);
+    } else if (e.target.closest('button') === null) {
+        // Clicking the row itself (not a button) expands/collapses the editor
+        expandedCourseId = (expandedCourseId === courseRow.dataset.id) ? null : courseRow.dataset.id;
+        gbConfirmDeleteId = null;
+        renderGradebook();
+    }
+});
+
+gbAddCourseBtn.addEventListener('click', addCourse);
+gbCourseInputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        addCourse();
+    }
+});
+
+gbTargetChips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+        const value = Number(chip.dataset.target);
+        if (isFinite(value) && value >= GB_MIN_SCORE && value <= GB_MAX_SCORE) {
+            gbSelectedTarget = value;
+        }
+        gbTargetChips.forEach(function (other) {
+            other.setAttribute('aria-pressed', String(other === chip));
+        });
+    });
+});
+
+// Escape collapses the open editor or disarms a pending delete
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    if (expandedCourseId !== null || gbConfirmDeleteId !== null) {
+        expandedCourseId = null;
+        gbConfirmDeleteId = null;
+        renderGradebook();
+    }
+});
+
+// Initialise the gradebook section from restored state
+renderGradebook();
+
+// ===== Exam Countdown (additive: Day 13) =====
+// Students track upcoming exams and deadlines with a day countdown, optionally
+// linked to gradebook courses so the current standing sits next to the days
+// remaining. Reads course names/grades via the Day 12 module; writes only its
+// own 'exams' key. The timer is reused through loadDuration() exactly the way
+// the flashcards' timer suggestion already does — the timer itself is untouched.
+const EXAMS_KEY = 'exams';  // additive: [{id, name, courseId, date, createdAt}]
+const MAX_EXAMS = 20;
+const EXAM_MAX_NAME = 60;
+const EXAM_URGENT_DAYS = 3;   // red band: 0-3 days
+const EXAM_SOON_DAYS = 7;     // amber band: 4-7 days
+
+const examNameInputEl = document.getElementById('examNameInput');
+const examCourseSelectEl = document.getElementById('examCourseSelect');
+const examDateInputEl = document.getElementById('examDateInput');
+const addExamBtn = document.getElementById('addExamBtn');
+const examListEl = document.getElementById('examList');
+const examEmptyEl = document.getElementById('examEmpty');
+const examAnnounceEl = document.getElementById('examAnnounce');
+
+let exams = loadExams();
+let examConfirmDeleteId = null; // two-step exam delete (click again to confirm)
+
+function announceExam(text) {
+    // New content in the live region is read out by screen readers
+    examAnnounceEl.textContent = text;
+}
+
+// --- Storage: exams (defensive load, coerces what it can, drops the rest) ---
+function loadExams() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(EXAMS_KEY));
+        if (!Array.isArray(parsed)) return [];
+        // Gradebook ids for the link check: dangling courseIds are coerced to
+        // null instead of dropping the exam (recoverable corruption, Day 9 style)
+        let courseIds = null;
+        try {
+            const parsedCourses = JSON.parse(localStorage.getItem(COURSES_KEY));
+            if (Array.isArray(parsedCourses)) {
+                courseIds = {};
+                parsedCourses.forEach(function (c) {
+                    if (c && typeof c === 'object' && typeof c.id === 'string') {
+                        courseIds[c.id] = true;
+                    }
+                });
+            }
+        } catch (err) { /* courses unreadable: leave links as stored */ }
+
+        const clean = [];
+        parsed.forEach(function (raw) {
+            if (!raw || typeof raw !== 'object') return;
+            const name = typeof raw.name === 'string' ? raw.name.trim().replace(/\s+/g, ' ').slice(0, EXAM_MAX_NAME) : '';
+            const date = typeof raw.date === 'string' ? raw.date : '';
+            if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+            let courseId = (typeof raw.courseId === 'string' && raw.courseId.length > 0) ? raw.courseId : null;
+            if (courseId !== null && courseIds && !courseIds[courseId]) courseId = null;
+            clean.push({
+                id: (typeof raw.id === 'string' && raw.id.length > 0) ? raw.id : gbMakeId('e'),
+                name: name,
+                courseId: courseId,
+                date: date,
+                createdAt: isFinite(Number(raw.createdAt)) ? Number(raw.createdAt) : 0
+            });
+        });
+        return clean.slice(0, MAX_EXAMS);
+    } catch (err) {
+        return []; // missing or corrupt data -> start fresh
+    }
+}
+
+function saveExams() {
+    try {
+        localStorage.setItem(EXAMS_KEY, JSON.stringify(exams));
+    } catch (err) {
+        // Storage full or unavailable: keep showing the in-memory exams
+    }
+}
+
+// --- Countdown math (reuses daysBetween() from the streak module) ---
+function examDaysLeft(dateStr) {
+    return daysBetween(todayDateString(), dateStr);
+}
+
+function examUrgency(daysLeft) {
+    if (daysLeft < 0) return 'past';
+    if (daysLeft <= EXAM_URGENT_DAYS) return 'urgent';
+    if (daysLeft <= EXAM_SOON_DAYS) return 'soon';
+    return 'later';
+}
+
+function examDaysLabel(daysLeft) {
+    if (daysLeft < 0) {
+        const ago = Math.abs(daysLeft);
+        return ago === 1 ? 'Passed 1 day ago' : 'Passed ' + ago + ' days ago';
+    }
+    if (daysLeft === 0) return 'Today — good luck!';
+    if (daysLeft === 1) return 'Tomorrow';
+    return daysLeft + ' days left';
+}
+
+// --- Course dropdown (populated from the Day 12 gradebook) ---
+function refreshExamCourseOptions() {
+    if (!examCourseSelectEl) return; // markup missing: fail silently
+    const previous = examCourseSelectEl.value;
+    examCourseSelectEl.innerHTML = '';
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'No course link';
+    examCourseSelectEl.appendChild(none);
+    courses.forEach(function (course) {
+        const option = document.createElement('option');
+        option.value = course.id;
+        option.textContent = course.name;
+        examCourseSelectEl.appendChild(option);
+    });
+    // Restore the previous selection if that course still exists
+    if (previous && courses.some(function (c) { return c.id === previous; })) {
+        examCourseSelectEl.value = previous;
+    }
+}
+
+// --- CRUD ---
+function addExam() {
+    const name = examNameInputEl.value.trim().replace(/\s+/g, ' ').slice(0, EXAM_MAX_NAME);
+    const date = examDateInputEl.value;
+    const courseId = examCourseSelectEl.value || null;
+    if (name.length === 0) {
+        announceExam('Please give the exam a name');
+        examNameInputEl.focus();
+        return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        announceExam('Please pick a date for the exam');
+        examDateInputEl.focus();
+        return;
+    }
+    if (exams.length >= MAX_EXAMS) {
+        announceExam('Exam list is full — delete an exam first');
+        return;
+    }
+    exams.push({ id: gbMakeId('e'), name: name, courseId: courseId, date: date, createdAt: Date.now() });
+    saveExams();
+    examNameInputEl.value = '';
+    examDateInputEl.value = '';
+    renderExams();
+    announceExam('Exam added: ' + name + ' on ' + date);
+    examNameInputEl.focus();
+}
+
+function deleteExam(id) {
+    const index = exams.findIndex(function (e) { return e.id === id; });
+    if (index === -1) return;
+    if (examConfirmDeleteId !== id) {
+        examConfirmDeleteId = id; // first click arms the confirm
+        renderExams();
+        announceExam('Press delete again to confirm removing this exam');
+        return;
+    }
+    examConfirmDeleteId = null;
+    const removed = exams.splice(index, 1)[0];
+    saveExams();
+    renderExams();
+    announceExam('Exam deleted: ' + removed.name);
+}
+
+// --- Rendering ---
+function examCourseLabel(exam) {
+    if (!exam.courseId) return null;
+    const course = courses.find(function (c) { return c.id === exam.courseId; });
+    if (!course) return null;
+    const calc = gbCompute(course);
+    if (calc.current === null) return course.name;
+    return course.name + ' · current ' + gbRound1(calc.current) + '%';
+}
+
+function renderExams() {
+    examListEl.innerHTML = ''; // textContent-only nodes below: no injection risk
+
+    if (exams.length === 0) {
+        examListEl.hidden = true;
+        examEmptyEl.hidden = false;
+        return;
+    }
+    examListEl.hidden = false;
+    examEmptyEl.hidden = true;
+
+    // Soonest future exams first; past exams sink to the bottom (kept until
+    // deleted). Sort key = days left, with past days mapped after everything.
+    const sorted = exams.slice().sort(function (a, b) {
+        const da = examDaysLeft(a.date);
+        const db = examDaysLeft(b.date);
+        const ka = da < 0 ? Number.MAX_SAFE_INTEGER : da;
+        const kb = db < 0 ? Number.MAX_SAFE_INTEGER : db;
+        return (ka - kb) || a.date.localeCompare(b.date);
+    });
+
+    sorted.forEach(function (exam, index) {
+        const li = document.createElement('li');
+        li.className = 'exam-row';
+        li.style.setProperty('--delay', (index * 0.05) + 's'); // staggered pop-in
+        li.dataset.id = exam.id;
+
+        const daysLeft = examDaysLeft(exam.date);
+        const urgency = examUrgency(daysLeft);
+        li.classList.add('urgency-' + urgency);
+
+        const top = document.createElement('div');
+        top.className = 'exam-top';
+
+        const name = document.createElement('span');
+        name.className = 'exam-name';
+        name.textContent = exam.name;
+
+        const badge = document.createElement('span');
+        badge.className = 'exam-badge';
+        badge.textContent = examDaysLabel(daysLeft);
+        badge.title = 'Exam date: ' + exam.date;
+
+        top.appendChild(name);
+        top.appendChild(badge);
+
+        const courseLabel = examCourseLabel(exam);
+        if (courseLabel) {
+            const course = document.createElement('span');
+            course.className = 'exam-course';
+            course.textContent = courseLabel;
+            top.appendChild(course);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'fc-deck-actions';
+
+        const focusBtn = document.createElement('button');
+        focusBtn.type = 'button';
+        focusBtn.className = 'btn btn-soft exam-focus-btn';
+        focusBtn.textContent = '⏱️ Focus on this';
+        focusBtn.setAttribute('aria-label', 'Set the timer to 25 minutes for ' + exam.name);
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'task-delete';
+        if (examConfirmDeleteId === exam.id) {
+            delBtn.textContent = '✓';
+            delBtn.classList.add('confirm');
+            delBtn.setAttribute('aria-label', 'Confirm delete exam: ' + exam.name);
+        } else {
+            delBtn.textContent = '🗑';
+            delBtn.setAttribute('aria-label', 'Delete exam: ' + exam.name);
+        }
+        actions.appendChild(focusBtn);
+        actions.appendChild(delBtn);
+        top.appendChild(actions);
+        li.appendChild(top);
+
+        const dateLine = document.createElement('p');
+        dateLine.className = 'exam-date-line';
+        const dateObj = new Date(exam.date + 'T00:00:00');
+        dateLine.textContent = dateObj.toLocaleDateString(undefined,
+            { weekday: 'long', month: 'long', day: 'numeric' });
+        li.appendChild(dateLine);
+
+        examListEl.appendChild(li);
+    });
+}
+
+// Event delegation: row buttons (rows re-render on each change, so per-row
+// listeners would leak)
+examListEl.addEventListener('click', function (e) {
+    const row = e.target.closest('.exam-row');
+    if (!row) return;
+    if (e.target.classList.contains('exam-focus-btn')) {
+        // Reuses the existing Study Timer unchanged: load 25 minutes; the user
+        // presses Start as usual (same flow as the preset buttons).
+        loadDuration(25 * 60 * 1000);
+        announceExam('Timer set to 25:00 — press Start');
+    } else if (e.target.classList.contains('task-delete')) {
+        deleteExam(row.dataset.id);
+    }
+});
+
+addExamBtn.addEventListener('click', addExam);
+examNameInputEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        addExam();
+    }
+});
+
+// Initialise the exam section from restored state
+refreshExamCourseOptions();
+renderExams();
